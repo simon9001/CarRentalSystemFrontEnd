@@ -8,22 +8,29 @@ import type {
     UpdateBranchStatusRequest,
     UpdateBranchManagerRequest
 } from '../../types/Branchtypes'
+import type { RootState } from '../../store/store'
 
 export const BranchApi = createApi({
     reducerPath: 'branchApi',
     baseQuery: fetchBaseQuery({ 
         baseUrl: `${apiDomain}`,
         prepareHeaders: (headers, { getState }) => {
-            const token = (getState() as any).auth?.token
-            if (token) headers.set('authorization', `Bearer ${token}`)
-            return headers
+            // Get token from auth state
+            const state = getState() as RootState
+            const token = state.auth.token;
+            
+            if (token) {
+                headers.set('Authorization', `${token}`);
+                headers.set('Content-Type', 'application/json');
+            }
+            return headers;
         },
     }),
     tagTypes: ['Branch'],
     endpoints: (builder) => ({
         // Get all branches
         getAllBranches: builder.query<BranchResponse[], void>({
-            query: () => '/branches',
+            query: () => '/branches/get',
             providesTags: ['Branch'],
         }),
         

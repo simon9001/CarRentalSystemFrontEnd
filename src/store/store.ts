@@ -29,8 +29,11 @@ import { DamageApi } from '../features/Api/DamageApi';
 import { UserProfileApi} from '../features/Api/CustomerUserApi';
 import { CustomerDashboardApi } from '../features/Api/CustomerDashboardAPI';
 import {staffApi} from '../features/Api/staffApi';
+import {UserApi} from '../features/Api/UsersApi';
 import {MaintenanceApi} from '../features/Api/maintenanceApi';
 import { settingsApi } from '../features/Api/settingsApi'
+import {CustomerDetailsApi} from '../features/Api/CustomerDetailsApi';
+import {CouponUsageApi} from '../features/Api/CouponUsageApi';
 
 
 
@@ -61,6 +64,7 @@ export const store = configureStore({
         // API reducers - Organized by functionality
         [AuthApi.reducerPath]: AuthApi.reducer,
         [settingsApi.reducerPath]: settingsApi.reducer,
+        [CouponUsageApi.reducerPath]: CouponUsageApi.reducer,
         
         // Core Business APIs
         [DashboardApi.reducerPath]: DashboardApi.reducer,
@@ -70,6 +74,8 @@ export const store = configureStore({
         [PaymentApi.reducerPath]: PaymentApi.reducer,
         [staffApi.reducerPath]: staffApi.reducer,
         [MaintenanceApi.reducerPath]: MaintenanceApi.reducer,
+        [UserApi.reducerPath]: UserApi.reducer,
+        [CustomerDetailsApi.reducerPath]: CustomerDetailsApi.reducer,
         
         // Vehicle Management APIs
         [CarModelApi.reducerPath]: CarModelApi.reducer,
@@ -106,6 +112,9 @@ export const store = configureStore({
             PaymentApi.middleware,
             staffApi.middleware,
             MaintenanceApi.middleware,
+            UserApi.middleware,
+            CustomerDetailsApi.middleware,
+            CouponUsageApi.middleware,
             
             // Vehicle Management Middleware
             CarModelApi.middleware,

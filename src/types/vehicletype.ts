@@ -166,4 +166,5 @@ export interface AddVehicleImageRequest {
     image_type: string;
     is_primary?: boolean;
     display_order?: number;
+    cloudinary_public_id?: string;
 }

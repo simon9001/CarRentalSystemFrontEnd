@@ -41,20 +41,39 @@ interface FormData {
   paymentMethod: string;
 }
 
-interface AvailabilityResponse {
-  success: boolean;
-  data: {
-    available: boolean;
-    vehicle_id: number;
+interface BookingResponse {
+  booking: {
+    booking_id: number;
     pickup_date: string;
     return_date: string;
+    booking_status: string;
+    calculated_total: number;
+    final_total: number;
+    customer_id?: number;
+    vehicle_id?: number;
   };
+  payment: {
+    payment_id: number;
+    booking_id: number;
+    amount: number;
+    payment_method: string;
+    transaction_code: string | null;
+    payment_status: string;
+  };
+  next_step?: string;
+  message?: string;
 }
 
 interface AuthState {
   auth: {
     token: string | null;
-    user: any | null;
+    user: {
+      customer_id?: number;
+      user_id?: number;
+      email: string;
+      full_name: string;
+      phone_number?: string;
+    } | null;
     refresh_token?: string;
   };
 }
@@ -175,35 +194,84 @@ const BookingPage: React.FC = () => {
 
       console.log('📦 Submitting booking data:', bookingData);
 
-      const result = await initiateBooking(bookingData).unwrap();
+      const result = await initiateBooking(bookingData).unwrap() as BookingResponse;
       
       console.log('✅ Booking response:', result);
       
-      if (result.data?.booking && result.data?.payment) {
-        console.log('🚀 Navigating to payment page...');
+      // Debug log the full structure
+      console.log('🔍 Full response structure:', JSON.stringify(result, null, 2));
+      
+      // Check if we have the required data
+      if (result?.booking && result?.payment) {
+        console.log('🚀 Valid booking and payment data received. Navigating to payment page...');
+        console.log('📋 Booking data:', result.booking);
+        console.log('💰 Payment data:', result.payment);
         
-        // Use the correct route path for your payment page
+        // Navigate to payment page
         navigate('/bookings/payment', { 
           state: { 
-            booking: result.data.booking,
-            payment: result.data.payment,
+            booking: result.booking,
+            payment: result.payment,
             vehicle: vehicle
           },
-          replace: true // This replaces the current entry in history stack
+          replace: true
         });
       } else {
         console.error('❌ Missing booking or payment data in response:', result);
-        alert('Booking created but payment initialization failed. Please contact support.');
+        
+        // Try to show what we received
+        if (result.message) {
+          console.log('📝 Server message:', result.message);
+        }
+        
+        if (result.next_step) {
+          console.log('➡️ Next step:', result.next_step);
+        }
+        
+        // If we have partial data but it's nested differently
+        const possibleBooking = (result as any).data?.booking || result.booking;
+        const possiblePayment = (result as any).data?.payment || result.payment;
+        
+        if (possibleBooking && possiblePayment) {
+          console.log('🔄 Found data in alternative structure');
+          navigate('/bookings/payment', { 
+            state: { 
+              booking: possibleBooking,
+              payment: possiblePayment,
+              vehicle: vehicle
+            },
+            replace: true
+          });
+        } else {
+          throw new Error('Booking created but payment initialization failed. Please contact support.');
+        }
       }
     } catch (error: any) {
       console.error('❌ Booking failed:', error);
-      const errorMessage = error?.data?.message || error?.message || 'Please try again.';
+      
+      let errorMessage = 'Failed to create booking. Please try again.';
+      
+      if (error?.status === 409) {
+        errorMessage = 'Vehicle is not available for the selected dates. Please choose different dates.';
+      } else if (error?.status === 400) {
+        errorMessage = error?.data?.error || 'Invalid booking data. Please check your inputs.';
+      } else if (error?.status === 404) {
+        errorMessage = 'Vehicle or customer not found.';
+      } else if (error?.status === 500) {
+        errorMessage = 'Server error. Please try again later.';
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
       alert(`Booking failed: ${errorMessage}`);
     }
   };
 
   // Fix: Check the correct availability structure
-  const isVehicleAvailable = availabilityResponse?.data?.available === true;
+  const isVehicleAvailable = availabilityResponse?.data?.available === true || 
+                            availabilityResponse?.available === true ||
+                            (availabilityResponse && typeof availabilityResponse === 'object' && 'available' in availabilityResponse && availabilityResponse.available === true);
+  
   const canProceed = formData.pickupDate && formData.returnDate && rentalDays > 0 && isVehicleAvailable;
 
   // Debug information
@@ -215,7 +283,11 @@ const BookingPage: React.FC = () => {
     isBookingLoading,
     formData,
     availabilityResponse,
-    user: user ? { id: user.user_id, name: user.full_name } : 'No user'
+    user: user ? { 
+      id: user.user_id || user.customer_id, 
+      name: user.full_name,
+      email: user.email 
+    } : 'No user'
   };
 
   return (
@@ -268,7 +340,7 @@ const BookingPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-3xl font-bold text-blue-600">${vehicle.daily_rate}<span className="text-lg font-normal">/day</span></p>
+                  <p className="text-3xl font-bold text-blue-600">${vehicle.daily_rate.toFixed(2)}<span className="text-lg font-normal">/day</span></p>
                   <p className="text-gray-600 text-sm">Base rate</p>
                 </div>
               </div>
@@ -467,7 +539,7 @@ const BookingPage: React.FC = () => {
                 <div className="space-y-3">
                   <div className="flex justify-between items-center py-2">
                     <span className="text-gray-600">Daily Rate</span>
-                    <span className="font-semibold">${vehicle.daily_rate}/day</span>
+                    <span className="font-semibold">${vehicle.daily_rate.toFixed(2)}/day</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-gray-200">
                     <span className="text-gray-600">Rental Duration</span>

@@ -83,7 +83,7 @@ const PaymentPage: React.FC = () => {
           <h2 className="text-2xl font-bold text-red-600 mb-4">Invalid Access</h2>
           <p className="text-gray-600 mb-4">No booking information found. Please start your booking again.</p>
           <button 
-            onClick={() => navigate('/vehicles')}
+            onClick={() => navigate('/Magariiii')}
             className="btn btn-primary"
           >
             Back to Vehicles
@@ -99,6 +99,19 @@ const PaymentPage: React.FC = () => {
   console.log('📦 PaymentPage received booking:', booking);
   console.log('📦 PaymentPage received payment:', payment);
   console.log('📦 PaymentPage received vehicle:', vehicle);
+  
+  // Validate data on mount
+  useEffect(() => {
+    if (!booking || !booking.booking_id) {
+      console.error('❌ Invalid booking data:', booking);
+    }
+    if (!payment || !payment.payment_id) {
+      console.error('❌ Invalid payment data:', payment);
+    }
+    if (!vehicle || !vehicle.vehicle_id) {
+      console.error('❌ Invalid vehicle data:', vehicle);
+    }
+  }, [booking, payment, vehicle]);
   
   // Get user from Redux store
   const { user } = useSelector((state: AuthState) => state.auth);
@@ -117,18 +130,7 @@ const PaymentPage: React.FC = () => {
     return Math.round(usdAmount * exchangeRate);
   };
 
-  const amountInKES = convertToKES(payment.amount);
-
-  // Validate data
-  useEffect(() => {
-    if (!booking || !payment || !vehicle) {
-      console.error('❌ Missing required data in PaymentPage:', {
-        hasBooking: !!booking,
-        hasPayment: !!payment,
-        hasVehicle: !!vehicle
-      });
-    }
-  }, [booking, payment, vehicle]);
+  const amountInKES = convertToKES(payment?.amount || 0);
 
   useEffect(() => {
     // Load Paystack script
@@ -151,7 +153,9 @@ const PaymentPage: React.FC = () => {
     document.body.appendChild(script);
 
     return () => {
-      document.body.removeChild(script);
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
     };
   }, []);
 
@@ -163,6 +167,16 @@ const PaymentPage: React.FC = () => {
 
     if (!user?.email) {
       setPaystackError('User email is required for payment.');
+      return;
+    }
+
+    if (!booking?.booking_id) {
+      setPaystackError('Invalid booking information.');
+      return;
+    }
+
+    if (!payment?.payment_id) {
+      setPaystackError('Invalid payment information.');
       return;
     }
 
@@ -186,8 +200,8 @@ const PaymentPage: React.FC = () => {
         metadata: {
           booking_id: booking.booking_id,
           customer_id: user?.customer_id || user?.user_id,
-          vehicle_id: vehicle.vehicle_id,
-          vehicle: `${vehicle.year} ${vehicle.make} ${vehicle.model}`
+          vehicle_id: vehicle?.vehicle_id,
+          vehicle: vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : 'Unknown Vehicle'
         },
         callback: function(response: any) {
           console.log('✅ Paystack callback received:', response);
@@ -201,52 +215,32 @@ const PaymentPage: React.FC = () => {
             .unwrap()
             .then((result) => {
               console.log('✅ Payment completed successfully:', result);
-              console.log('📤 Preparing to navigate with vehicle data:', vehicle);
               
               setIsProcessing(false);
               setPaymentStatus('success');
               
-              // Navigate to success page with ALL required data
+              // Navigate to success page
               setTimeout(() => {
                 navigate('/booking-success', { 
                   state: { 
                     booking: {
-                      ...result.data.booking,
-                      // Ensure we have all booking data
-                      booking_id: result.data.booking.booking_id || booking.booking_id,
-                      pickup_date: result.data.booking.pickup_date || booking.pickup_date,
-                      return_date: result.data.booking.return_date || booking.return_date,
-                      booking_status: result.data.booking.booking_status || 'Confirmed',
-                      calculated_total: result.data.booking.calculated_total || booking.calculated_total,
-                      final_total: result.data.booking.final_total || booking.final_total,
-                      customer_id: result.data.booking.customer_id || user?.customer_id || user?.user_id
+                      booking_id: booking.booking_id,
+                      pickup_date: booking.pickup_date,
+                      return_date: booking.return_date,
+                      booking_status: 'Confirmed',
+                      calculated_total: booking.calculated_total,
+                      final_total: booking.final_total,
+                      customer_id: user?.customer_id || user?.user_id
                     },
                     payment: {
-                      ...result.data.payment,
-                      payment_id: result.data.payment.payment_id || payment.payment_id,
-                      amount: result.data.payment.amount || payment.amount,
-                      payment_method: result.data.payment.payment_method || payment.payment_method,
+                      payment_id: payment.payment_id,
+                      amount: payment.amount,
+                      payment_method: payment.payment_method,
                       transaction_code: response.reference,
                       payment_status: 'Completed'
                     },
                     transactionCode: response.reference,
-                    vehicle: {
-                      vehicle_id: vehicle.vehicle_id,
-                      make: vehicle.make,
-                      model: vehicle.model,
-                      year: vehicle.year,
-                      vehicle_type: vehicle.vehicle_type,
-                      branch_name: vehicle.branch_name,
-                      daily_rate: vehicle.daily_rate,
-                      model_id: vehicle.model_id
-                    },
-                    vehicleData: { // Backup vehicle data
-                      year: vehicle.year,
-                      make: vehicle.make,
-                      model: vehicle.model,
-                      vehicle_type: vehicle.vehicle_type,
-                      vehicle_id: vehicle.vehicle_id
-                    }
+                    vehicle: vehicle
                   },
                   replace: true
                 });
@@ -289,6 +283,11 @@ const PaymentPage: React.FC = () => {
       return;
     }
 
+    if (!booking || !payment || !vehicle) {
+      setPaystackError('Missing booking information. Please start over.');
+      return;
+    }
+
     switch (selectedMethod) {
       case 'paystack':
         handlePaystackPayment();
@@ -306,12 +305,41 @@ const PaymentPage: React.FC = () => {
   // Calculate rental days safely
   let rentalDays = 0;
   try {
-    rentalDays = Math.ceil(
-      (new Date(booking.return_date).getTime() - new Date(booking.pickup_date).getTime()) / (1000 * 60 * 60 * 24)
-    );
+    if (booking?.pickup_date && booking?.return_date) {
+      rentalDays = Math.ceil(
+        (new Date(booking.return_date).getTime() - new Date(booking.pickup_date).getTime()) / (1000 * 60 * 60 * 24)
+      );
+    }
   } catch (error) {
     console.error('Error calculating rental days:', error);
     rentalDays = 1;
+  }
+
+  // If data is invalid, show error
+  if (!booking || !payment || !vehicle) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-8">
+        <Navbar />
+        <div className="container mx-auto px-4 max-w-4xl">
+          <div className="bg-white rounded-xl shadow-lg border border-red-200 p-8 text-center">
+            <h2 className="text-2xl font-bold text-red-600 mb-4">Data Error</h2>
+            <p className="text-gray-600 mb-4">Some booking information is missing or invalid.</p>
+            <div className="text-left bg-gray-50 p-4 rounded-lg mb-6">
+              <p><strong>Booking:</strong> {booking ? 'Valid' : 'Missing'}</p>
+              <p><strong>Payment:</strong> {payment ? 'Valid' : 'Missing'}</p>
+              <p><strong>Vehicle:</strong> {vehicle ? 'Valid' : 'Missing'}</p>
+            </div>
+            <button 
+              onClick={() => navigate('/vehicles')}
+              className="btn btn-primary"
+            >
+              Back to Vehicles
+            </button>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
   }
 
   return (
@@ -397,7 +425,7 @@ const PaymentPage: React.FC = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Vehicle:</span>
-                      <span className="font-semibold">{vehicle?.year || 'N/A'} {vehicle?.make || ''} {vehicle?.model || ''}</span>
+                      <span className="font-semibold">{vehicle.year} {vehicle.make} {vehicle.model}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Duration:</span>
@@ -405,18 +433,18 @@ const PaymentPage: React.FC = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Pickup Date:</span>
-                      <span className="font-semibold">{booking.pickup_date ? new Date(booking.pickup_date).toLocaleDateString() : 'N/A'}</span>
+                      <span className="font-semibold">{new Date(booking.pickup_date).toLocaleDateString()}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Return Date:</span>
-                      <span className="font-semibold">{booking.return_date ? new Date(booking.return_date).toLocaleDateString() : 'N/A'}</span>
+                      <span className="font-semibold">{new Date(booking.return_date).toLocaleDateString()}</span>
                     </div>
                     <div className="flex justify-between text-lg font-bold text-blue-600 border-t pt-3">
                       <span>Total Amount:</span>
                       <span>KES {amountInKES.toLocaleString()}</span>
                     </div>
                     <div className="text-sm text-gray-500">
-                      (Approx. ${payment.amount?.toFixed(2) || '0'} USD)
+                      (Approx. ${payment.amount?.toFixed(2)} USD)
                     </div>
                   </div>
                 </div>
@@ -536,11 +564,15 @@ const PaymentPage: React.FC = () => {
           <details className="text-sm">
             <summary className="cursor-pointer font-semibold text-gray-700">Debug Information</summary>
             <div className="mt-2 space-y-2">
-              <div><strong>Paystack Loaded:</strong> {paystackLoaded ? 'Yes' : 'No'}</div>
+              <div><strong>Booking ID:</strong> {booking.booking_id}</div>
+              <div><strong>Payment ID:</strong> {payment.payment_id}</div>
+              <div><strong>Vehicle ID:</strong> {vehicle.vehicle_id}</div>
+              <div><strong>User ID:</strong> {user?.user_id || user?.customer_id || 'Not found'}</div>
               <div><strong>User Email:</strong> {user?.email || 'Not found'}</div>
-              <div><strong>Vehicle Data:</strong> {vehicle ? 'Available' : 'Missing'}</div>
+              <div><strong>Paystack Loaded:</strong> {paystackLoaded ? 'Yes' : 'No'}</div>
               <div><strong>Rental Days:</strong> {rentalDays}</div>
               <div><strong>Amount in KES:</strong> {amountInKES.toLocaleString()}</div>
+              <div><strong>Amount in USD:</strong> ${payment.amount?.toFixed(2)}</div>
             </div>
           </details>
         </div>

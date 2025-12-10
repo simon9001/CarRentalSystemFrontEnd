@@ -209,7 +209,7 @@ export const BookingApi = createApi({
     // =============================================
 
     getAllBookings: builder.query<BookingDetails[], void>({
-      query: () => '/bookings',
+      query: () => '/bookings/get',
       transformResponse: (response: BackendResponse<BookingDetails[]>) => response.data,
       providesTags: ['Booking'],
     }),

@@ -3,7 +3,38 @@
   themes: light --default, cupcake,retro,aqua,cyberpunk;
 }
 
-/* Add to your global styles */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-slide-down {
+  animation: slideDown 0.3s ease-out;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.animate-bounce-slow {
+  animation: bounce 3s infinite;
+}
+/* Add to your global styles
 @keyframes slide-in {
   from {
     transform: translateX(100%);
@@ -20,7 +51,7 @@
 }
 
 /* Switch toggle styles */
-.switch {
+/* .switch {
   position: relative;
   display: inline-block;
   width: 60px;
@@ -62,4 +93,4 @@ input:checked + .slider:before {
 }
 .slider.round:before {
   border-radius: 50%;
-}
+} */ 

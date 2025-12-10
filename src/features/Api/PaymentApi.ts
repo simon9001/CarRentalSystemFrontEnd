@@ -75,7 +75,7 @@ export const PaymentApi = createApi({
 
     // ➤ Get payment summary for dashboard
     getPaymentSummary: builder.query<PaymentSummary, void>({
-      query: () => '/summary',
+      query: () => '/summary/statistrics',
       providesTags: ['PaymentSummary'],
       transformResponse: (response: ApiResponse<PaymentSummary>) => {
         return response.success ? response.data : {} as PaymentSummary
@@ -129,6 +129,38 @@ export const PaymentApi = createApi({
         return response.success ? response.data : {} as Payment
       }
     }),
+
+// Get payments by customer with optional status filter
+getCustomerPayments: builder.query<ApiResponse<Payment[]>, { customerId: number; status?: string }>({
+  query: ({ customerId, status }) => {
+    const params = new URLSearchParams();
+    if (status) params.append('status', status);
+    return `/customer/${customerId}?${params.toString()}`;
+  },
+  providesTags: (result) =>
+    result && result.success ? [
+      { type: 'Payment' as const, id: 'CUSTOMER_LIST' },
+      ...(result.data as Payment[]).map(({ payment_id }) => ({ 
+        type: 'Payment' as const, 
+        id: payment_id 
+      })),
+    ] : [{ type: 'Payment' as const, id: 'CUSTOMER_LIST' }],
+}),
+
+// Process refund mutation
+processRefund: builder.mutation<ApiResponse<Payment>, { 
+  payment_id: number; 
+  refund_amount: number; 
+  is_partial?: boolean;
+  reason?: string;
+}>({
+  query: ({ payment_id, refund_amount, is_partial, reason }) => ({
+    url: `/${payment_id}/refund`,
+    method: 'PATCH',
+    body: { refund_amount, is_partial, reason },
+  }),
+  invalidatesTags: ['Payment', 'PaymentSummary'],
+}),
 
     // ➤ Get payments by booking
     getPaymentsByBooking: builder.query<{
@@ -290,15 +322,15 @@ export const PaymentApi = createApi({
       invalidatesTags: ['Payment', 'PaymentSummary'],
     }),
 
-    // ➤ Process refund
-    processRefund: builder.mutation<ApiResponse<Payment>, { payment_id: number; refund_amount: number }>({
-      query: ({ payment_id, refund_amount }) => ({
-        url: `/${payment_id}/refund`,
-        method: 'PATCH',
-        body: { refund_amount },
-      }),
-      invalidatesTags: ['Payment', 'PaymentSummary'],
-    }),
+    // // ➤ Process refund
+    // processRefund: builder.mutation<ApiResponse<Payment>, { payment_id: number; refund_amount: number }>({
+    //   query: ({ payment_id, refund_amount }) => ({
+    //     url: `/${payment_id}/refund`,
+    //     method: 'PATCH',
+    //     body: { refund_amount },
+    //   }),
+    //   invalidatesTags: ['Payment', 'PaymentSummary'],
+    // }),
 
     // ➤ Update payment transaction code
     updatePaymentTransactionCode: builder.mutation<ApiResponse<Payment>, { payment_id: number; transaction_code: string }>({
@@ -340,7 +372,9 @@ export const {
   useUpdatePaymentStatusMutation,
   useCompletePaymentMutation,
   useFailPaymentMutation,
-  useProcessRefundMutation,
+  // useProcessRefundMutation,
   useUpdatePaymentTransactionCodeMutation,
   useDeletePaymentMutation,
+  useGetCustomerPaymentsQuery,
+  useProcessRefundMutation,
 } = PaymentApi

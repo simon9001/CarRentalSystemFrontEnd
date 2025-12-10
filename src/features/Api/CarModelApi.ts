@@ -23,7 +23,7 @@ export const CarModelApi = createApi({
     endpoints: (builder) => ({
         // Get all car models
         getAllCarModels: builder.query<CarModelResponse[], void>({
-            query: () => '/car-models',
+            query: () => '/car-models/get',
             providesTags: ['CarModel'],
         }),
         

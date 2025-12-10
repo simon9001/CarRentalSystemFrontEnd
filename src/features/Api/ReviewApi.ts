@@ -3,6 +3,7 @@ import { apiDomain } from '../../apiDomain/ApiDomain';
 
 export interface Review {
     review_id: number;
+    customer_id: number; 
     customer_name: string;
     rating: number;
     comment: string | null;
@@ -14,6 +15,7 @@ export interface Review {
     year: number;
     pickup_date: string;
     return_date: string;
+    booking_id: number;
 }
 
 export const ReviewApi = createApi({
@@ -26,6 +28,11 @@ export const ReviewApi = createApi({
             return headers;
         },
     }),
+
+    // checkBookingHasReview: builder.query<{ has_review: boolean }, number>({
+    //     query: (bookingId) => `/reviews/booking/${bookingId}/check`,
+    //   }),
+
     tagTypes: ['Review'],
     endpoints: (builder) => ({
         // Get visible reviews (for public display)
@@ -86,7 +93,12 @@ export const ReviewApi = createApi({
             }),
             invalidatesTags: ['Review'],
         }),
-        
+        // Check if booking has review
+        checkBookingHasReview: builder.query<{ has_review: boolean }, number>({
+            query: (bookingId) => `/booking/${bookingId}/check`,
+            providesTags: ['Review'],
+        }),
+
         // Delete review
         deleteReview: builder.mutation<void, number>({
             query: (review_id) => ({
@@ -106,5 +118,6 @@ export const {
     useGetTopRatedVehiclesQuery,
     useCreateReviewMutation,
     useUpdateReviewMutation,
+    useCheckBookingHasReviewQuery,
     useDeleteReviewMutation
 } = ReviewApi;

@@ -32,7 +32,7 @@ const Sidebar: React.FC = () => {
         },
         {
             name: 'Payments',
-            path: '/dashboard/payments',
+            path: '/bookings/paymentview',
             icon: <CreditCard className="w-5 h-5" />
         },
         {
@@ -50,11 +50,11 @@ const Sidebar: React.FC = () => {
             path: '/dashboard/coupons',
             icon: <Ticket className="w-5 h-5" />
         },
-        {
-            name: 'Vehicle History',
-            path: '/dashboard/vehicles',
-            icon: <Car className="w-5 h-5" />
-        },
+        // {
+        //     name: 'Vehicle History',
+        //     path: '/dashboard/vehicles',
+        //     icon: <Car className="w-5 h-5" />
+        // },
         {
             name: 'Profile',
             path: '/dashboard/user-profile',

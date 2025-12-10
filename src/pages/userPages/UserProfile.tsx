@@ -1,236 +1,274 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import DashboardLayout from '../../dashboardDesign/DashboardLayout'
-import { 
-User, 
-Edit, 
-Save, 
-X, 
-Mail, 
-Phone, 
-Calendar, 
-MapPin, 
-Globe, 
-Briefcase, 
-Link, 
-Shield,
-Bell,
-Eye,
-EyeOff,
-Upload,
-CheckCircle,
-AlertCircle,
-Building,
-Percent
-} from 'lucide-react'
+import { User, Edit, Save, X, Mail, Phone, Calendar, Shield, Check, MapPin, Globe, Briefcase, Heart, Bell, Lock, Unlock, Camera, Upload } from 'lucide-react'
 import { useSelector } from 'react-redux'
 import type { RootState } from '../../store/store'
-import { 
-    UserProfileApi, 
-    type UserWithProfile,
-    type UpdateProfileRequest,
-    type NotificationPreferences,
-    profileUtils 
-} from '../../features/Api/CustomerUserApi.ts'
+import { UserProfileApi, profileUtils } from '../../features/Api/CustomerUserApi'
 import { toast, Toaster } from 'sonner'
+import { skipToken } from '@reduxjs/toolkit/query'
+
+// Cloudinary configuration
+const CLOUDINARY_CLOUD_NAME = 'dfhzcvbof'
+const CLOUDINARY_UPLOAD_PRESET = 'Csrrentalsystem'
+const CLOUDINARY_FOLDER = 'currentalsystem/profiles' // Changed from vehicles to profiles
 
 const UserProfile: React.FC = () => {
     const { user, isAuthenticated } = useSelector((state: RootState) => state.auth)
+    const [isEditing, setIsEditing] = useState(false)
+    const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
+    const [uploadProgress, setUploadProgress] = useState(0)
+    const fileInputRef = useRef<HTMLInputElement>(null)
     
-    // API hooks
-    const { 
-        data: profileResponse, 
-        isLoading, 
-        error, 
-        refetch 
-    } = UserProfileApi.useGetCurrentProfileQuery(undefined, {
-        skip: !isAuthenticated
+    // Use the correct endpoint - get profile by user_id
+    const { data: profileResponse, isLoading: isLoadingProfile, refetch } = UserProfileApi.useGetProfileByUserIdQuery(
+        user?.user_id ? user.user_id : skipToken
+    )
+    
+    const [updateProfile, { isLoading: isUpdating }] = UserProfileApi.useUpdateProfileByUserIdMutation()
+    const [uploadProfilePicture, { isLoading: isUploading }] = UserProfileApi.useUploadProfilePictureMutation()
+    
+    // Get profile data from response
+    const profileData = profileResponse?.data
+    
+    const [formData, setFormData] = useState({
+        first_name: '',
+        last_name: '',
+        middle_name: '',
+        email: '',
+        phone_number: '',
+        date_of_birth: '',
+        gender: '',
+        address: '',
+        city: '',
+        state: '',
+        country: '',
+        postal_code: '',
+        bio: '',
+        website: '',
+        company: '',
+        job_title: '',
+        emergency_contact_name: '',
+        emergency_contact_phone: '',
+        preferred_language: 'en',
+        is_public: true
     })
     
-    const [updateProfile] = UserProfileApi.useUpdateProfileMutation()
-    const [uploadProfilePicture] = UserProfileApi.useUploadProfilePictureMutation()
-    const [updateNotificationPrefs] = UserProfileApi.useUpdateNotificationPreferencesMutation()
-    const [toggleVisibility] = UserProfileApi.useToggleProfileVisibilityMutation()
-    const [validateProfile] = UserProfileApi.useValidateProfileDataMutation()
-    
-    const { data: completionData } = UserProfileApi.useGetProfileCompletionQuery()
+    const [originalData, setOriginalData] = useState({ ...formData })
 
-    // States
-    const [isEditing, setIsEditing] = useState(false)
-    const [activeTab, setActiveTab] = useState<'personal' | 'contact' | 'professional' | 'preferences'>('personal')
-    const [isUploading, setIsUploading] = useState(false)
-    const [showValidationErrors, setShowValidationErrors] = useState(false)
-    
-    // Form states
-    const [formData, setFormData] = useState<UpdateProfileRequest>({})
-    const [originalData, setOriginalData] = useState<UpdateProfileRequest>({})
-    const [notificationPrefs, setNotificationPrefs] = useState<NotificationPreferences>({})
-    const [profileImage, setProfileImage] = useState<File | null>(null)
-    const [imagePreview, setImagePreview] = useState<string>('')
-
-    // Current profile data
-    const profileData = profileResponse?.data
-
-    // Initialize form data when profile loads
+    // Initialize form data when profile data is available
     useEffect(() => {
         if (profileData) {
-            const initialFormData = profileUtils.prepareUpdateData(profileData)
-            setFormData(initialFormData)
-            setOriginalData(initialFormData)
-            
-            // Set notification preferences
-            if (profileData.notification_preferences) {
-                setNotificationPrefs(profileUtils.parseNotificationPreferences(profileData.notification_preferences))
+            const userInfo = {
+                first_name: profileData.first_name || '',
+                last_name: profileData.last_name || '',
+                middle_name: profileData.middle_name || '',
+                email: profileData.email || '',
+                phone_number: profileData.phone_number || '',
+                date_of_birth: profileData.date_of_birth || '',
+                gender: profileData.gender || '',
+                address: profileData.address || '',
+                city: profileData.city || '',
+                state: profileData.state || '',
+                country: profileData.country || '',
+                postal_code: profileData.postal_code || '',
+                bio: profileData.bio || '',
+                website: profileData.website || '',
+                company: profileData.company || '',
+                job_title: profileData.job_title || '',
+                emergency_contact_name: profileData.emergency_contact_name || '',
+                emergency_contact_phone: profileData.emergency_contact_phone || '',
+                preferred_language: profileData.preferred_language || 'en',
+                is_public: profileData.is_public || true
             }
-            
-            // Set image preview if profile picture exists
-            if (profileData.profile_picture) {
-                setImagePreview(profileData.profile_picture)
-            }
+            setFormData(userInfo)
+            setOriginalData(userInfo)
         }
     }, [profileData])
 
-    // Handle image upload
-    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (file) {
-            // Validate file
-            const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-            if (!allowedTypes.includes(file.type)) {
-                toast.error('Invalid file type. Please select JPEG, PNG, GIF, or WebP image.')
-                return
-            }
-            
-            const maxSize = 5 * 1024 * 1024 // 5MB
-            if (file.size > maxSize) {
-                toast.error('File size too large. Maximum size is 5MB.')
-                return
-            }
-            
-            setProfileImage(file)
-            setImagePreview(URL.createObjectURL(file))
-        }
-    }
-
-    // Upload profile picture
-    const handleImageUpload = async () => {
-        if (!profileImage) return
-        
-        setIsUploading(true)
-        const loadingToastId = toast.loading('Uploading profile picture...')
-        
-        try {
-            const formData = new FormData()
-            formData.append('profile_picture', profileImage)
-            
-            await uploadProfilePicture(formData).unwrap()
-            await refetch()
-            
-            toast.success('Profile picture updated successfully!', { id: loadingToastId })
-            setProfileImage(null)
-        } catch (error: any) {
-            toast.error(error?.data?.message || 'Failed to upload image', { id: loadingToastId })
-        } finally {
-            setIsUploading(false)
-        }
-    }
-
-    // Handle form input changes
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        const { name, value, type } = e.target
-        
-        if (type === 'checkbox') {
-            const checkbox = e.target as HTMLInputElement
-            setFormData(prev => ({
-                ...prev,
-                [name]: checkbox.checked
-            }))
-        } else {
-            setFormData(prev => ({
-                ...prev,
-                [name]: value
-            }))
-        }
-    }
-
-    // Handle notification preference changes
-    const handleNotificationChange = (key: keyof NotificationPreferences, value: boolean) => {
-        setNotificationPrefs(prev => ({
+        const { name, value } = e.target
+        setFormData(prev => ({
             ...prev,
-            [key]: value
+            [name]: value
         }))
     }
 
-    // Validate form before saving
-    const validateForm = async (): Promise<boolean> => {
+    const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, checked } = e.target
+        setFormData(prev => ({
+            ...prev,
+            [name]: checked
+        }))
+    }
+
+    // Function to handle profile picture upload to Cloudinary
+    const handleProfilePictureUpload = async (file: File) => {
+        if (!user?.user_id) {
+            toast.error("User ID not found")
+            return
+        }
+
+        setIsUploadingPhoto(true)
+        setUploadProgress(0)
+        const loadingToastId = toast.loading("Uploading profile picture...")
+
         try {
-            const result = await validateProfile(formData).unwrap()
-            if (!result.success) {
-                setShowValidationErrors(true)
-                toast.error('Please fix the validation errors before saving.')
-                return false
+            // Validate file type
+            const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+            if (!allowedTypes.includes(file.type)) {
+                throw new Error('Invalid file type. Allowed: JPEG, PNG, GIF, WebP')
             }
-            return true
-        } catch (error) {
-            toast.error('Validation failed. Please check your inputs.')
-            return false
+
+            // Validate file size (max 5MB)
+            const maxSize = 5 * 1024 * 1024 // 5MB
+            if (file.size > maxSize) {
+                throw new Error('File too large. Maximum size is 5MB')
+            }
+
+            // Create form data for Cloudinary upload
+            const cloudinaryFormData = new FormData()
+            cloudinaryFormData.append('file', file)
+            cloudinaryFormData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET)
+            cloudinaryFormData.append('folder', CLOUDINARY_FOLDER)
+            cloudinaryFormData.append('public_id', `profile_${user.user_id}_${Date.now()}`)
+
+            // Upload to Cloudinary
+            const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`
+
+            const xhr = new XMLHttpRequest()
+            
+            // Track upload progress
+            xhr.upload.addEventListener('progress', (event) => {
+                if (event.lengthComputable) {
+                    const progress = Math.round((event.loaded / event.total) * 100)
+                    setUploadProgress(progress)
+                    toast.loading(`Uploading... ${progress}%`, { id: loadingToastId })
+                }
+            })
+
+            const cloudinaryResponse = await new Promise<any>((resolve, reject) => {
+                xhr.onreadystatechange = () => {
+                    if (xhr.readyState === 4) {
+                        if (xhr.status === 200) {
+                            try {
+                                const response = JSON.parse(xhr.responseText)
+                                resolve(response)
+                            } catch (error) {
+                                reject(new Error('Failed to parse Cloudinary response'))
+                            }
+                        } else {
+                            reject(new Error('Upload failed'))
+                        }
+                    }
+                }
+                xhr.onerror = () => reject(new Error('Network error'))
+                xhr.open('POST', cloudinaryUrl, true)
+                xhr.send(cloudinaryFormData)
+            })
+
+            // Get the secure URL from Cloudinary response
+            const imageUrl = cloudinaryResponse.secure_url
+
+            // Update profile with the new image URL using your API
+            await uploadProfilePicture({
+                user_id: user.user_id,
+                file: file // This will be used by your backend
+            }).unwrap()
+
+            // Alternatively, you can update the profile picture directly
+            // Uncomment this if your backend doesn't handle profile picture uploads
+            /*
+            await updateProfile({
+                target_user_id: user.user_id,
+                profile_picture: imageUrl
+            }).unwrap()
+            */
+
+            // Refresh profile data
+            refetch()
+            toast.success("Profile picture uploaded successfully!", { id: loadingToastId })
+        } catch (error: any) {
+            console.error('Profile picture upload failed:', error)
+            const errorMessage = error?.message || 'Failed to upload profile picture. Please try again.'
+            toast.error(errorMessage, { id: loadingToastId })
+        } finally {
+            setIsUploadingPhoto(false)
+            setUploadProgress(0)
+            if (fileInputRef.current) {
+                fileInputRef.current.value = ''
+            }
         }
     }
 
-    // Save profile changes
+    // Handle file selection
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (file) {
+            handleProfilePictureUpload(file)
+        }
+    }
+
+    // Trigger file input click
+    const triggerFileInput = () => {
+        if (fileInputRef.current) {
+            fileInputRef.current.click()
+        }
+    }
+
     const handleSave = async () => {
-        if (!profileData?.user_id) return
-        
-        const isValid = await validateForm()
-        if (!isValid) return
-        
-        const loadingToastId = toast.loading('Saving profile...')
-        
+        if (!user?.user_id) {
+            toast.error("User ID not found")
+            return
+        }
+
+        const loadingToastId = toast.loading("Updating profile...")
+
         try {
-            await updateProfile(formData).unwrap()
-            
-            // Save notification preferences if changed
-            const prefsString = JSON.stringify(notificationPrefs)
-            if (prefsString !== profileData.notification_preferences) {
-                await updateNotificationPrefs(notificationPrefs)
+            // Prepare update data - only changed fields
+            const updateData: any = {}
+            Object.keys(formData).forEach(key => {
+                if (key === 'user_id' || key === 'email' || key === 'phone_number') return // Don't send these
+                const value = formData[key as keyof typeof formData]
+                const originalValue = originalData[key as keyof typeof originalData]
+                
+                // Only include if value has changed and is not null/undefined
+                if (value !== originalValue && value !== undefined && value !== null) {
+                    updateData[key] = value === '' ? null : value
+                }
+            })
+
+            // Validate data before sending
+            const validation = profileUtils.validateProfile(updateData)
+            if (!validation.isValid) {
+                toast.error(`Validation failed: ${validation.errors.join(', ')}`, { id: loadingToastId })
+                return
             }
-            
-            await refetch()
+
+            // Send update request
+            await updateProfile({
+                target_user_id: user.user_id,
+                ...updateData
+            }).unwrap()
+
+            setOriginalData(formData)
             setIsEditing(false)
-            setShowValidationErrors(false)
-            toast.success('Profile updated successfully!', { id: loadingToastId })
+            refetch() // Refresh profile data
+            toast.success("Profile updated successfully!", { id: loadingToastId })
         } catch (error: any) {
-            toast.error(error?.data?.message || 'Failed to update profile', { id: loadingToastId })
+            console.error('Profile update failed:', error)
+            const errorMessage = error?.data?.error || 
+                               error?.data?.details?.[0] || 
+                               error?.data?.message || 
+                               'Failed to update profile. Please try again.'
+            toast.error(errorMessage, { id: loadingToastId })
         }
     }
 
-    // Toggle profile visibility
-    const handleToggleVisibility = async () => {
-        if (!profileData) return
-        
-        try {
-            await toggleVisibility({ is_public: !profileData.is_public }).unwrap()
-            await refetch()
-            toast.success(`Profile is now ${!profileData.is_public ? 'public' : 'private'}`)
-        } catch (error: any) {
-            toast.error(error?.data?.message || 'Failed to update visibility')
-        }
-    }
-
-    // Cancel editing
     const handleCancel = () => {
         setFormData(originalData)
         setIsEditing(false)
-        setShowValidationErrors(false)
-        setProfileImage(null)
-        setImagePreview(profileData?.profile_picture || '')
     }
 
-    // Check if form has changes
-    const hasChanges = JSON.stringify(formData) !== JSON.stringify(originalData) || 
-                      profileImage !== null ||
-                      JSON.stringify(notificationPrefs) !== profileData?.notification_preferences
-
-    // Format date
     const formatDate = (dateString: string | null) => {
         if (!dateString) return 'Not set'
         try {
@@ -244,889 +282,797 @@ const UserProfile: React.FC = () => {
         }
     }
 
-    // Get profile completion progress
-    const getCompletionColor = (percentage: number) => {
-        if (percentage >= 80) return 'bg-green-500'
-        if (percentage >= 50) return 'bg-yellow-500'
-        return 'bg-red-500'
+    const calculateProfileCompletion = () => {
+        if (!profileData) return 0
+        return profileUtils.calculateCompletion(profileData)
     }
 
-    // Tabs configuration
-    const tabs = [
-        { id: 'personal', label: 'Personal', icon: User },
-        { id: 'contact', label: 'Contact', icon: Mail },
-        { id: 'professional', label: 'Professional', icon: Briefcase },
-        { id: 'preferences', label: 'Preferences', icon: Bell }
-    ]
+    const getProfileStatus = () => {
+        if (!profileData) return { label: 'Basic', color: 'bg-blue-100 text-blue-800' }
+        const status = profileUtils.getProfileStatus(profileData)
+        const colorMap = {
+            'Private': 'bg-gray-100 text-gray-800',
+            'Complete': 'bg-green-100 text-green-800',
+            'In Progress': 'bg-yellow-100 text-yellow-800',
+            'Basic': 'bg-blue-100 text-blue-800'
+        }
+        return { label: status.label, color: colorMap[status.label as keyof typeof colorMap] || 'bg-blue-100 text-blue-800' }
+    }
+
+    const hasChanges = JSON.stringify(formData) !== JSON.stringify(originalData)
+
+    // Parse notification preferences
+    const notificationPrefs = profileUtils.parseNotificationPreferences(profileData?.notification_preferences || null)
+
+    // Format date for date input
+    const formatDateForInput = (dateString: string | null) => {
+        if (!dateString) return ''
+        try {
+            const date = new Date(dateString)
+            return date.toISOString().split('T')[0]
+        } catch {
+            return ''
+        }
+    }
+
+    // Get profile picture URL or use default
+    const getProfilePictureUrl = () => {
+        if (profileData?.profile_picture) {
+            return profileData.profile_picture
+        }
+        return '/default-avatar.png' // Make sure this image exists in your public folder
+    }
 
     return (
         <DashboardLayout>
             <Toaster position="top-right" richColors />
             
-            {/* Header */}
-            <div className="mb-8">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div>
-                        <h1 className="text-2xl font-bold text-gray-900">My Profile</h1>
-                        <p className="text-gray-600 mt-1">Manage your personal information and preferences</p>
+            {/* Hidden file input */}
+            <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept="image/*"
+                onChange={handleFileSelect}
+                disabled={isUploadingPhoto}
+            />
+            
+            <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-green-100 rounded-lg">
+                        <User className="text-green-600" size={24} />
                     </div>
-                    
-                    {!isEditing ? (
-                        <button
-                            onClick={() => setIsEditing(true)}
-                            className="btn btn-primary bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg flex items-center gap-2 shadow-sm"
-                            disabled={isLoading}
-                        >
-                            <Edit size={18} />
-                            Edit Profile
-                        </button>
-                    ) : (
-                        <div className="flex gap-2">
-                            <button
-                                onClick={handleCancel}
-                                className="btn btn-outline border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg flex items-center gap-2"
-                            >
-                                <X size={18} />
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSave}
-                                disabled={!hasChanges || isUploading}
-                                className="btn btn-primary bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                <Save size={18} />
-                                Save Changes
-                            </button>
-                        </div>
-                    )}
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-800">User Profile</h1>
                 </div>
+
+                {!isEditing ? (
+                    <button
+                        onClick={() => setIsEditing(true)}
+                        className="btn btn-outline border-green-800 text-green-800 hover:bg-green-800 hover:text-white"
+                    >
+                        <Edit size={16} />
+                        Edit Profile
+                    </button>
+                ) : (
+                    <div className="flex gap-2">
+                        <button
+                            onClick={handleCancel}
+                            className="btn btn-outline btn-error"
+                        >
+                            <X size={16} />
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handleSave}
+                            disabled={!hasChanges || isUpdating}
+                            className="btn bg-green-800 hover:bg-green-900 text-white"
+                        >
+                            {isUpdating ? (
+                                <span className="loading loading-spinner loading-sm"></span>
+                            ) : (
+                                <Save size={16} />
+                            )}
+                            Save Changes
+                        </button>
+                    </div>
+                )}
             </div>
 
-            {/* Loading State */}
-            {isLoading && (
-                <div className="flex items-center justify-center py-12">
-                    <div className="text-center">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
-                        <p className="mt-4 text-gray-600">Loading your profile...</p>
-                    </div>
+            {!isAuthenticated || !user ? (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+                    <h3 className="text-lg font-semibold text-red-800 mb-2">Access Denied</h3>
+                    <p className="text-red-600">Please sign in to view your profile.</p>
                 </div>
-            )}
-
-            {/* Error State */}
-            {error && !isLoading && (
-                <div className="bg-red-50 border border-red-200 rounded-xl p-6">
-                    <div className="flex items-center gap-3">
-                        <AlertCircle className="text-red-500" size={24} />
-                        <div>
-                            <h3 className="text-lg font-semibold text-red-800">Failed to load profile</h3>
-                            <p className="text-red-600 mt-1">Please try refreshing the page or contact support.</p>
-                        </div>
-                    </div>
+            ) : isLoadingProfile ? (
+                <div className="flex justify-center items-center py-16">
+                    <span className="loading loading-spinner loading-lg text-green-600">Loading ....</span>
                 </div>
-            )}
-
-            {/* Profile Content */}
-            {!isLoading && !error && profileData && (
+            ) : (
                 <div className="space-y-6">
-                    {/* Profile Completion */}
-                    {completionData?.data && (
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="flex items-center gap-3">
-                                    <Percent className="text-indigo-600" size={20} />
-                                    <h3 className="font-semibold text-gray-900">Profile Completion</h3>
+                    {/* Profile Header */}
+                    <div className="bg-white rounded-lg shadow-md p-6">
+                        <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
+                            {/* Profile Picture Section */}
+                            <div className="relative group">
+                                <div className="w-32 h-32 rounded-full overflow-hidden bg-green-100 border-4 border-white shadow-lg">
+                                    {isUploadingPhoto ? (
+                                        <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                                            <div className="text-center">
+                                                <div className="loading loading-spinner loading-md text-green-600"></div>
+                                                <p className="text-xs text-gray-500 mt-2">{uploadProgress}%</p>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <img 
+                                            src={getProfilePictureUrl()} 
+                                            alt="Profile" 
+                                            className="w-full h-full object-cover"
+                                            onError={(e) => {
+                                                e.currentTarget.src = '/default-avatar.png'
+                                            }}
+                                        />
+                                    )}
                                 </div>
-                                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getCompletionColor(completionData.data.profile_completion_percentage)} text-white`}>
-                                    {completionData.data.profile_completion_percentage}%
-                                </span>
+                                
+                                {/* Upload Overlay Button */}
+                                <button
+                                    onClick={triggerFileInput}
+                                    disabled={isUploadingPhoto}
+                                    className="absolute bottom-0 right-0 p-2 bg-green-600 text-white rounded-full shadow-lg hover:bg-green-700 transition-all duration-200 opacity-0 group-hover:opacity-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title="Change profile picture"
+                                >
+                                    {isUploadingPhoto ? (
+                                        <span className="loading loading-spinner loading-xs"></span>
+                                    ) : (
+                                        <Camera size={18} />
+                                    )}
+                                </button>
+                                
+                                {/* Upload Button (Always visible on mobile) */}
+                                <div className="md:hidden mt-3">
+                                    <button
+                                        onClick={triggerFileInput}
+                                        disabled={isUploadingPhoto}
+                                        className="btn btn-sm btn-outline border-green-600 text-green-600 hover:bg-green-600 hover:text-white w-full"
+                                    >
+                                        {isUploadingPhoto ? (
+                                            <>
+                                                <span className="loading loading-spinner loading-xs mr-2"></span>
+                                                Uploading...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Upload size={14} className="mr-2" />
+                                                Change Photo
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
                             </div>
-                            <div className="w-full bg-gray-200 rounded-full h-2">
-                                <div 
-                                    className={`h-2 rounded-full transition-all duration-300 ${getCompletionColor(completionData.data.profile_completion_percentage)}`}
-                                    style={{ width: `${completionData.data.profile_completion_percentage}%` }}
-                                ></div>
+                            
+                            <div className="flex-1">
+                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                    <div>
+                                        <h2 className="text-2xl font-bold text-gray-800">
+                                            {profileUtils.formatFullName(profileData || {})}
+                                        </h2>
+                                        <p className="text-gray-600 mt-1">{profileData?.email || user.email}</p>
+                                        <div className="flex flex-wrap gap-2 mt-3">
+                                            <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getProfileStatus().color}`}>
+                                                {getProfileStatus().label}
+                                            </span>
+                                            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-purple-100 text-purple-800">
+                                                <Shield size={14} className="mr-1" />
+                                                {user.role?.toUpperCase() || 'USER'}
+                                            </span>
+                                            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-800">
+                                                {profileData?.is_public ? (
+                                                    <>
+                                                        <Unlock size={14} className="mr-1" />
+                                                        Public
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Lock size={14} className="mr-1" />
+                                                        Private
+                                                    </>
+                                                )}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    {!isEditing && (
+                                        <div className="text-right">
+                                            <div className="text-3xl font-bold text-green-600">
+                                                {calculateProfileCompletion()}%
+                                            </div>
+                                            <div className="text-sm text-gray-600">Profile Completion</div>
+                                            <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+                                                <div 
+                                                    className="bg-green-600 h-2.5 rounded-full" 
+                                                    style={{ width: `${calculateProfileCompletion()}%` }}
+                                                ></div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                            <p className="text-sm text-gray-600 mt-2">
-                                {completionData.data.completion_level} profile • Updated {formatDate(completionData.data.last_profile_update)}
-                            </p>
                         </div>
-                    )}
+                    </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                        {/* Sidebar - Profile Card */}
-                        <div className="lg:col-span-1 space-y-6">
-                            {/* Profile Card */}
-                            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                                <div className="relative">
-                                    <div className="w-32 h-32 rounded-full overflow-hidden bg-gradient-to-br from-indigo-100 to-purple-100 mx-auto mb-4 relative">
-                                        {imagePreview ? (
-                                            <img 
-                                                src={imagePreview} 
-                                                alt="Profile" 
-                                                className="w-full h-full object-cover"
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Personal Information */}
+                        <div className="lg:col-span-2">
+                            <div className="bg-white rounded-lg shadow-md p-6">
+                                <h3 className="text-lg font-semibold text-gray-800 mb-6">Personal Information</h3>
+
+                                <div className="space-y-6">
+                                    {/* Name Section */}
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                First Name
+                                            </label>
+                                            {isEditing ? (
+                                                <input
+                                                    type="text"
+                                                    name="first_name"
+                                                    value={formData.first_name}
+                                                    onChange={handleInputChange}
+                                                    className="input input-bordered w-full focus:border-green-500"
+                                                    placeholder="Enter your first name"
+                                                />
+                                            ) : (
+                                                <div className="p-3 bg-gray-50 rounded-lg">
+                                                    {profileData?.first_name || 'Not provided'}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Middle Name
+                                            </label>
+                                            {isEditing ? (
+                                                <input
+                                                    type="text"
+                                                    name="middle_name"
+                                                    value={formData.middle_name}
+                                                    onChange={handleInputChange}
+                                                    className="input input-bordered w-full focus:border-green-500"
+                                                    placeholder="Enter your middle name"
+                                                />
+                                            ) : (
+                                                <div className="p-3 bg-gray-50 rounded-lg">
+                                                    {profileData?.middle_name || 'Not provided'}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Last Name
+                                            </label>
+                                            {isEditing ? (
+                                                <input
+                                                    type="text"
+                                                    name="last_name"
+                                                    value={formData.last_name}
+                                                    onChange={handleInputChange}
+                                                    className="input input-bordered w-full focus:border-green-500"
+                                                    placeholder="Enter your last name"
+                                                />
+                                            ) : (
+                                                <div className="p-3 bg-gray-50 rounded-lg">
+                                                    {profileData?.last_name || 'Not provided'}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Contact Information */}
+                                    <div>
+                                        <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                                            <Mail size={18} />
+                                            Contact Information
+                                        </h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Email Address
+                                                </label>
+                                                <div className="p-3 bg-gray-50 rounded-lg">
+                                                    {profileData?.email || user.email || 'Not provided'}
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Phone Number
+                                                </label>
+                                                {isEditing ? (
+                                                    <input
+                                                        type="tel"
+                                                        name="phone_number"
+                                                        value={formData.phone_number}
+                                                        onChange={handleInputChange}
+                                                        className="input input-bordered w-full focus:border-green-500"
+                                                        placeholder="Enter your phone number"
+                                                    />
+                                                ) : (
+                                                    <div className="p-3 bg-gray-50 rounded-lg">
+                                                        {profileData?.phone_number || 'Not provided'}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Personal Details */}
+                                    <div>
+                                        <h4 className="text-md font-semibold text-gray-800 mb-4">Personal Details</h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Date of Birth
+                                                </label>
+                                                {isEditing ? (
+                                                    <input
+                                                        type="date"
+                                                        name="date_of_birth"
+                                                        value={formatDateForInput(formData.date_of_birth)}
+                                                        onChange={handleInputChange}
+                                                        className="input input-bordered w-full focus:border-green-500"
+                                                    />
+                                                ) : (
+                                                    <div className="p-3 bg-gray-50 rounded-lg">
+                                                        {formatDate(profileData?.date_of_birth || null)}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Gender
+                                                </label>
+                                                {isEditing ? (
+                                                    <select
+                                                        name="gender"
+                                                        value={formData.gender}
+                                                        onChange={handleInputChange}
+                                                        className="select select-bordered w-full focus:border-green-500"
+                                                    >
+                                                        <option value="">Select Gender</option>
+                                                        <option value="Male">Male</option>
+                                                        <option value="Female">Female</option>
+                                                        <option value="Other">Other</option>
+                                                    </select>
+                                                ) : (
+                                                    <div className="p-3 bg-gray-50 rounded-lg">
+                                                        {profileData?.gender || 'Not provided'}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Preferred Language
+                                                </label>
+                                                {isEditing ? (
+                                                    <select
+                                                        name="preferred_language"
+                                                        value={formData.preferred_language}
+                                                        onChange={handleInputChange}
+                                                        className="select select-bordered w-full focus:border-green-500"
+                                                    >
+                                                        <option value="en">English</option>
+                                                        <option value="es">Spanish</option>
+                                                        <option value="fr">French</option>
+                                                        <option value="de">German</option>
+                                                        <option value="zh">Chinese</option>
+                                                    </select>
+                                                ) : (
+                                                    <div className="p-3 bg-gray-50 rounded-lg">
+                                                        {profileData?.preferred_language || 'English'}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Address Information */}
+                                    <div>
+                                        <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                                            <MapPin size={18} />
+                                            Address Information
+                                        </h4>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Address
+                                                </label>
+                                                {isEditing ? (
+                                                    <input
+                                                        type="text"
+                                                        name="address"
+                                                        value={formData.address}
+                                                        onChange={handleInputChange}
+                                                        className="input input-bordered w-full focus:border-green-500"
+                                                        placeholder="Enter your address"
+                                                    />
+                                                ) : (
+                                                    <div className="p-3 bg-gray-50 rounded-lg">
+                                                        {profileData?.address || 'Not provided'}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                        City
+                                                    </label>
+                                                    {isEditing ? (
+                                                        <input
+                                                            type="text"
+                                                            name="city"
+                                                            value={formData.city}
+                                                            onChange={handleInputChange}
+                                                            className="input input-bordered w-full focus:border-green-500"
+                                                            placeholder="City"
+                                                        />
+                                                    ) : (
+                                                        <div className="p-3 bg-gray-50 rounded-lg">
+                                                            {profileData?.city || 'Not provided'}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                        State
+                                                    </label>
+                                                    {isEditing ? (
+                                                        <input
+                                                            type="text"
+                                                            name="state"
+                                                            value={formData.state}
+                                                            onChange={handleInputChange}
+                                                            className="input input-bordered w-full focus:border-green-500"
+                                                            placeholder="State"
+                                                        />
+                                                    ) : (
+                                                        <div className="p-3 bg-gray-50 rounded-lg">
+                                                            {profileData?.state || 'Not provided'}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                        Country
+                                                    </label>
+                                                    {isEditing ? (
+                                                        <input
+                                                            type="text"
+                                                            name="country"
+                                                            value={formData.country}
+                                                            onChange={handleInputChange}
+                                                            className="input input-bordered w-full focus:border-green-500"
+                                                            placeholder="Country"
+                                                        />
+                                                    ) : (
+                                                        <div className="p-3 bg-gray-50 rounded-lg">
+                                                            {profileData?.country || 'Not provided'}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                        Postal Code
+                                                    </label>
+                                                    {isEditing ? (
+                                                        <input
+                                                            type="text"
+                                                            name="postal_code"
+                                                            value={formData.postal_code}
+                                                            onChange={handleInputChange}
+                                                            className="input input-bordered w-full focus:border-green-500"
+                                                            placeholder="Postal Code"
+                                                        />
+                                                    ) : (
+                                                        <div className="p-3 bg-gray-50 rounded-lg">
+                                                            {profileData?.postal_code || 'Not provided'}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Professional Information */}
+                                    <div>
+                                        <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                                            <Briefcase size={18} />
+                                            Professional Information
+                                        </h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Company
+                                                </label>
+                                                {isEditing ? (
+                                                    <input
+                                                        type="text"
+                                                        name="company"
+                                                        value={formData.company}
+                                                        onChange={handleInputChange}
+                                                        className="input input-bordered w-full focus:border-green-500"
+                                                        placeholder="Enter your company name"
+                                                    />
+                                                ) : (
+                                                    <div className="p-3 bg-gray-50 rounded-lg">
+                                                        {profileData?.company || 'Not provided'}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Job Title
+                                                </label>
+                                                {isEditing ? (
+                                                    <input
+                                                        type="text"
+                                                        name="job_title"
+                                                        value={formData.job_title}
+                                                        onChange={handleInputChange}
+                                                        className="input input-bordered w-full focus:border-green-500"
+                                                        placeholder="Enter your job title"
+                                                    />
+                                                ) : (
+                                                    <div className="p-3 bg-gray-50 rounded-lg">
+                                                        {profileData?.job_title || 'Not provided'}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="mt-4">
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Bio
+                                            </label>
+                                            {isEditing ? (
+                                                <textarea
+                                                    name="bio"
+                                                    value={formData.bio}
+                                                    onChange={handleInputChange}
+                                                    className="textarea textarea-bordered w-full focus:border-green-500"
+                                                    placeholder="Tell us about yourself..."
+                                                    rows={3}
+                                                />
+                                            ) : (
+                                                <div className="p-3 bg-gray-50 rounded-lg">
+                                                    {profileData?.bio || 'No bio provided'}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="mt-4">
+                                            <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                                                <Globe size={16} />
+                                                Website
+                                            </label>
+                                            {isEditing ? (
+                                                <input
+                                                    type="url"
+                                                    name="website"
+                                                    value={formData.website}
+                                                    onChange={handleInputChange}
+                                                    className="input input-bordered w-full focus:border-green-500"
+                                                    placeholder="https://example.com"
+                                                />
+                                            ) : (
+                                                <div className="p-3 bg-gray-50 rounded-lg">
+                                                    {profileData?.website ? (
+                                                        <a 
+                                                            href={profileData.website} 
+                                                            target="_blank" 
+                                                            rel="noopener noreferrer"
+                                                            className="text-blue-600 hover:underline"
+                                                        >
+                                                            {profileData.website}
+                                                        </a>
+                                                    ) : 'Not provided'}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Sidebar Information */}
+                        <div className="space-y-6">
+                            {/* Emergency Contact */}
+                            <div className="bg-white rounded-lg shadow-md p-6">
+                                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                                    <Heart size={18} />
+                                    Emergency Contact
+                                </h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Contact Name
+                                        </label>
+                                        {isEditing ? (
+                                            <input
+                                                type="text"
+                                                name="emergency_contact_name"
+                                                value={formData.emergency_contact_name}
+                                                onChange={handleInputChange}
+                                                className="input input-bordered w-full focus:border-green-500"
+                                                placeholder="Enter emergency contact name"
                                             />
                                         ) : (
-                                            <div className="w-full h-full flex items-center justify-center">
-                                                <User className="text-indigo-500" size={48} />
-                                            </div>
-                                        )}
-                                        
-                                        {isEditing && (
-                                            <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity rounded-full">
-                                                <label className="cursor-pointer p-3 bg-white rounded-full hover:bg-gray-100 transition-colors">
-                                                    <Upload size={20} />
-                                                    <input 
-                                                        type="file" 
-                                                        className="hidden" 
-                                                        accept="image/*"
-                                                        onChange={handleImageSelect}
-                                                    />
-                                                </label>
+                                            <div className="p-3 bg-gray-50 rounded-lg">
+                                                {profileData?.emergency_contact_name || 'Not provided'}
                                             </div>
                                         )}
                                     </div>
-                                    
-                                    {isEditing && profileImage && (
-                                        <div className="flex gap-2 justify-center mt-3">
-                                            <button
-                                                onClick={handleImageUpload}
-                                                disabled={isUploading}
-                                                className="btn btn-sm btn-primary bg-indigo-600 hover:bg-indigo-700 text-white"
-                                            >
-                                                {isUploading ? 'Uploading...' : 'Upload'}
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    setProfileImage(null)
-                                                    setImagePreview(profileData.profile_picture || '')
-                                                }}
-                                                className="btn btn-sm btn-outline border-gray-300"
-                                            >
-                                                Cancel
-                                            </button>
-                                        </div>
-                                    )}
-                                    
-                                    <h2 className="text-xl font-bold text-center text-gray-900 mb-1">
-                                        {profileUtils.formatFullName(profileData)}
-                                    </h2>
-                                    {profileData.email && (
-                                        <p className="text-gray-600 text-center text-sm mb-4">{profileData.email}</p>
-                                    )}
-                                    
-                                    {/* Profile Visibility Toggle */}
-                                    <div className="flex items-center justify-center gap-2 mb-4">
-                                        <button
-                                            onClick={handleToggleVisibility}
-                                            disabled={!isEditing}
-                                            className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${
-                                                profileData.is_public 
-                                                    ? 'bg-green-100 text-green-800' 
-                                                    : 'bg-gray-100 text-gray-800'
-                                            } ${isEditing ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'}`}
-                                        >
-                                            {profileData.is_public ? (
-                                                <>
-                                                    <Eye size={14} />
-                                                    Public
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <EyeOff size={14} />
-                                                    Private
-                                                </>
-                                            )}
-                                        </button>
-                                        <div className="relative group">
-                                            <Shield size={16} className="text-gray-400" />
-                                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block w-48">
-                                                <div className="bg-gray-900 text-white text-xs rounded py-1 px-2">
-                                                    {profileData.is_public 
-                                                        ? 'Your profile is visible to other users' 
-                                                        : 'Only you can see your profile'}
-                                                </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Contact Phone
+                                        </label>
+                                        {isEditing ? (
+                                            <input
+                                                type="tel"
+                                                name="emergency_contact_phone"
+                                                value={formData.emergency_contact_phone}
+                                                onChange={handleInputChange}
+                                                className="input input-bordered w-full focus:border-green-500"
+                                                placeholder="Enter emergency contact phone"
+                                            />
+                                        ) : (
+                                            <div className="p-3 bg-gray-50 rounded-lg">
+                                                {profileData?.emergency_contact_phone || 'Not provided'}
                                             </div>
-                                        </div>
-                                    </div>
-                                    
-                                    {/* Quick Stats */}
-                                    <div className="space-y-3">
-                                        <div className="flex items-center justify-between text-sm">
-                                            <span className="text-gray-600">Member Since</span>
-                                            <span className="font-medium">{formatDate(profileData.created_at)}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between text-sm">
-                                            <span className="text-gray-600">Last Updated</span>
-                                            <span className="font-medium">{formatDate(profileData.updated_at)}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between text-sm">
-                                            <span className="text-gray-600">Updates Count</span>
-                                            <span className="font-medium">{profileData.profile_updated_count}</span>
-                                        </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Navigation Tabs */}
-                            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                                {tabs.map((tab) => {
-                                    const Icon = tab.icon
-                                    return (
-                                        <button
-                                            key={tab.id}
-                                            onClick={() => setActiveTab(tab.id as any)}
-                                            className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-                                                activeTab === tab.id
-                                                    ? 'bg-indigo-50 text-indigo-700 border-r-2 border-indigo-600'
-                                                    : 'text-gray-700 hover:bg-gray-50'
-                                            }`}
-                                        >
-                                            <Icon size={18} />
-                                            <span className="font-medium">{tab.label}</span>
-                                        </button>
-                                    )
-                                })}
+                            {/* Account Information */}
+                            <div className="bg-white rounded-lg shadow-md p-6">
+                                <h3 className="text-lg font-semibold text-gray-800 mb-4">Account Information</h3>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            <Calendar size={14} className="inline mr-1" />
+                                            Member Since
+                                        </label>
+                                        <div className="p-2 bg-gray-50 rounded">
+                                            {profileData?.created_at ? formatDate(profileData.created_at) : 'Unknown'}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Last Profile Update
+                                        </label>
+                                        <div className="p-2 bg-gray-50 rounded">
+                                            {profileData?.last_profile_update ? formatDate(profileData.last_profile_update) : 'Never'}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            User ID
+                                        </label>
+                                        <div className="p-2 bg-gray-50 rounded font-mono text-sm">
+                                            #{user?.user_id}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Profile Updates
+                                        </label>
+                                        <div className="p-2 bg-gray-50 rounded">
+                                            {profileData?.profile_updated_count || 0} times
+                                        </div>
+                                    </div>
+
+                                    {isEditing && (
+                                        <div className="pt-4 border-t border-gray-200">
+                                            <div className="flex items-center justify-between">
+                                                <label className="block text-sm font-medium text-gray-700">
+                                                    Profile Visibility
+                                                </label>
+                                                <input
+                                                    type="checkbox"
+                                                    name="is_public"
+                                                    checked={formData.is_public}
+                                                    onChange={handleCheckboxChange}
+                                                    className="toggle toggle-success"
+                                                />
+                                            </div>
+                                            <p className="text-xs text-gray-500 mt-2">
+                                                {formData.is_public 
+                                                    ? 'Your profile is visible to other users' 
+                                                    : 'Your profile is private and only visible to you'}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Notification Preferences */}
+                            <div className="bg-white rounded-lg shadow-md p-6">
+                                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                                    <Bell size={18} />
+                                    Notifications
+                                </h3>
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm text-gray-700">Email Notifications</span>
+                                        <div className={`px-2 py-1 rounded text-xs ${notificationPrefs.email ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                            {notificationPrefs.email ? 'Enabled' : 'Disabled'}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm text-gray-700">Push Notifications</span>
+                                        <div className={`px-2 py-1 rounded text-xs ${notificationPrefs.push ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                            {notificationPrefs.push ? 'Enabled' : 'Disabled'}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm text-gray-700">Marketing Emails</span>
+                                        <div className={`px-2 py-1 rounded text-xs ${notificationPrefs.marketing ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                            {notificationPrefs.marketing ? 'Enabled' : 'Disabled'}
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
+                    </div>
 
-                        {/* Main Content */}
-                        <div className="lg:col-span-3">
-                            <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-                                {/* Tab Content */}
-                                <div className="p-6">
-                                    {/* Personal Information Tab */}
-                                    {activeTab === 'personal' && (
-                                        <div className="space-y-6">
-                                            <div className="flex items-center gap-2 mb-6">
-                                                <User className="text-indigo-600" size={20} />
-                                                <h3 className="text-lg font-semibold text-gray-900">Personal Information</h3>
-                                            </div>
-                                            
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                {/* First Name */}
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        First Name *
-                                                    </label>
-                                                    {isEditing ? (
-                                                        <input
-                                                            type="text"
-                                                            name="first_name"
-                                                            value={formData.first_name || ''}
-                                                            onChange={handleInputChange}
-                                                            className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                            placeholder="Enter first name"
-                                                        />
-                                                    ) : (
-                                                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                            {profileData.first_name || 'Not provided'}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Last Name */}
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        Last Name *
-                                                    </label>
-                                                    {isEditing ? (
-                                                        <input
-                                                            type="text"
-                                                            name="last_name"
-                                                            value={formData.last_name || ''}
-                                                            onChange={handleInputChange}
-                                                            className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                            placeholder="Enter last name"
-                                                        />
-                                                    ) : (
-                                                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                            {profileData.last_name || 'Not provided'}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Middle Name */}
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        Middle Name
-                                                    </label>
-                                                    {isEditing ? (
-                                                        <input
-                                                            type="text"
-                                                            name="middle_name"
-                                                            value={formData.middle_name || ''}
-                                                            onChange={handleInputChange}
-                                                            className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                            placeholder="Enter middle name"
-                                                        />
-                                                    ) : (
-                                                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                            {profileData.middle_name || 'Not provided'}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Gender */}
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        Gender
-                                                    </label>
-                                                    {isEditing ? (
-                                                        <select
-                                                            name="gender"
-                                                            value={formData.gender || ''}
-                                                            onChange={handleInputChange}
-                                                            className="select select-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                        >
-                                                            <option value="">Select gender</option>
-                                                            <option value="Male">Male</option>
-                                                            <option value="Female">Female</option>
-                                                            <option value="Other">Other</option>
-                                                        </select>
-                                                    ) : (
-                                                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                            {profileData.gender || 'Not provided'}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Date of Birth */}
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        <Calendar size={14} className="inline mr-1" />
-                                                        Date of Birth
-                                                    </label>
-                                                    {isEditing ? (
-                                                        <input
-                                                            type="date"
-                                                            name="date_of_birth"
-                                                            value={formData.date_of_birth || ''}
-                                                            onChange={handleInputChange}
-                                                            className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                        />
-                                                    ) : (
-                                                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                            {profileData.date_of_birth ? formatDate(profileData.date_of_birth) : 'Not provided'}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Preferred Language */}
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        <Globe size={14} className="inline mr-1" />
-                                                        Preferred Language
-                                                    </label>
-                                                    {isEditing ? (
-                                                        <select
-                                                            name="preferred_language"
-                                                            value={formData.preferred_language || 'en'}
-                                                            onChange={handleInputChange}
-                                                            className="select select-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                        >
-                                                            <option value="en">English</option>
-                                                            <option value="es">Spanish</option>
-                                                            <option value="fr">French</option>
-                                                            <option value="de">German</option>
-                                                        </select>
-                                                    ) : (
-                                                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                            {profileData.preferred_language?.toUpperCase() || 'EN'}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Bio */}
-                                                <div className="md:col-span-2">
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        Bio
-                                                    </label>
-                                                    {isEditing ? (
-                                                        <textarea
-                                                            name="bio"
-                                                            value={formData.bio || ''}
-                                                            onChange={handleInputChange}
-                                                            rows={3}
-                                                            className="textarea textarea-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                            placeholder="Tell us about yourself..."
-                                                        />
-                                                    ) : (
-                                                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 min-h-[80px]">
-                                                            {profileData.bio || 'No bio provided'}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Contact Information Tab */}
-                                    {activeTab === 'contact' && (
-                                        <div className="space-y-6">
-                                            <div className="flex items-center gap-2 mb-6">
-                                                <Mail className="text-indigo-600" size={20} />
-                                                <h3 className="text-lg font-semibold text-gray-900">Contact Information</h3>
-                                            </div>
-                                            
-                                            <div className="space-y-6">
-                                                {/* Email (Read-only from auth) */}
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        <Mail size={14} className="inline mr-1" />
-                                                        Email Address
-                                                    </label>
-                                                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center justify-between">
-                                                        <span>{profileData.email || 'Not provided'}</span>
-                                                        {profileData.email && (
-                                                            <CheckCircle className="text-green-500" size={16} />
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                {/* Phone */}
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        <Phone size={14} className="inline mr-1" />
-                                                        Phone Number
-                                                    </label>
-                                                    {isEditing ? (
-                                                        <input
-                                                            type="tel"
-                                                            name="emergency_contact_phone"
-                                                            value={formData.emergency_contact_phone || ''}
-                                                            onChange={handleInputChange}
-                                                            className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                            placeholder="Enter phone number"
-                                                        />
-                                                    ) : (
-                                                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                            {profileData.emergency_contact_phone || 'Not provided'}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Emergency Contact */}
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                    <div>
-                                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                            Emergency Contact Name
-                                                        </label>
-                                                        {isEditing ? (
-                                                            <input
-                                                                type="text"
-                                                                name="emergency_contact_name"
-                                                                value={formData.emergency_contact_name || ''}
-                                                                onChange={handleInputChange}
-                                                                className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                                placeholder="Enter emergency contact name"
-                                                            />
-                                                        ) : (
-                                                            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                                {profileData.emergency_contact_name || 'Not provided'}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                            Emergency Contact Phone
-                                                        </label>
-                                                        {isEditing ? (
-                                                            <input
-                                                                type="tel"
-                                                                name="emergency_contact_phone"
-                                                                value={formData.emergency_contact_phone || ''}
-                                                                onChange={handleInputChange}
-                                                                className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                                placeholder="Enter emergency phone"
-                                                            />
-                                                        ) : (
-                                                            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                                {profileData.emergency_contact_phone || 'Not provided'}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                {/* Address Information */}
-                                                <div className="pt-6 border-t border-gray-200">
-                                                    <h4 className="text-md font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                                                        <MapPin size={16} />
-                                                        Address Information
-                                                    </h4>
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                        <div className="md:col-span-2">
-                                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                                Address
-                                                            </label>
-                                                            {isEditing ? (
-                                                                <input
-                                                                    type="text"
-                                                                    name="address"
-                                                                    value={formData.address || ''}
-                                                                    onChange={handleInputChange}
-                                                                    className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                                    placeholder="Enter your address"
-                                                                />
-                                                            ) : (
-                                                                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                                    {profileData.address || 'Not provided'}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                                City
-                                                            </label>
-                                                            {isEditing ? (
-                                                                <input
-                                                                    type="text"
-                                                                    name="city"
-                                                                    value={formData.city || ''}
-                                                                    onChange={handleInputChange}
-                                                                    className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                                    placeholder="Enter city"
-                                                                />
-                                                            ) : (
-                                                                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                                    {profileData.city || 'Not provided'}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                                State/Province
-                                                            </label>
-                                                            {isEditing ? (
-                                                                <input
-                                                                    type="text"
-                                                                    name="state"
-                                                                    value={formData.state || ''}
-                                                                    onChange={handleInputChange}
-                                                                    className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                                    placeholder="Enter state"
-                                                                />
-                                                            ) : (
-                                                                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                                    {profileData.state || 'Not provided'}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                                Country
-                                                            </label>
-                                                            {isEditing ? (
-                                                                <input
-                                                                    type="text"
-                                                                    name="country"
-                                                                    value={formData.country || ''}
-                                                                    onChange={handleInputChange}
-                                                                    className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                                    placeholder="Enter country"
-                                                                />
-                                                            ) : (
-                                                                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                                    {profileData.country || 'Not provided'}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                                Postal Code
-                                                            </label>
-                                                            {isEditing ? (
-                                                                <input
-                                                                    type="text"
-                                                                    name="postal_code"
-                                                                    value={formData.postal_code || ''}
-                                                                    onChange={handleInputChange}
-                                                                    className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                                    placeholder="Enter postal code"
-                                                                />
-                                                            ) : (
-                                                                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                                    {profileData.postal_code || 'Not provided'}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Professional Information Tab */}
-                                    {activeTab === 'professional' && (
-                                        <div className="space-y-6">
-                                            <div className="flex items-center gap-2 mb-6">
-                                                <Briefcase className="text-indigo-600" size={20} />
-                                                <h3 className="text-lg font-semibold text-gray-900">Professional Information</h3>
-                                            </div>
-                                            
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                {/* Company */}
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        <Building size={14} className="inline mr-1" />
-                                                        Company
-                                                    </label>
-                                                    {isEditing ? (
-                                                        <input
-                                                            type="text"
-                                                            name="company"
-                                                            value={formData.company || ''}
-                                                            onChange={handleInputChange}
-                                                            className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                            placeholder="Enter company name"
-                                                        />
-                                                    ) : (
-                                                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                            {profileData.company || 'Not provided'}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Job Title */}
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        Job Title
-                                                    </label>
-                                                    {isEditing ? (
-                                                        <input
-                                                            type="text"
-                                                            name="job_title"
-                                                            value={formData.job_title || ''}
-                                                            onChange={handleInputChange}
-                                                            className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                            placeholder="Enter job title"
-                                                        />
-                                                    ) : (
-                                                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                            {profileData.job_title || 'Not provided'}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Website */}
-                                                <div className="md:col-span-2">
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        <Link size={14} className="inline mr-1" />
-                                                        Website
-                                                    </label>
-                                                    {isEditing ? (
-                                                        <input
-                                                            type="url"
-                                                            name="website"
-                                                            value={formData.website || ''}
-                                                            onChange={handleInputChange}
-                                                            className="input input-bordered w-full focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                            placeholder="https://example.com"
-                                                        />
-                                                    ) : (
-                                                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                                            {profileData.website ? (
-                                                                <a 
-                                                                    href={profileData.website} 
-                                                                    target="_blank" 
-                                                                    rel="noopener noreferrer"
-                                                                    className="text-indigo-600 hover:underline"
-                                                                >
-                                                                    {profileData.website}
-                                                                </a>
-                                                            ) : 'Not provided'}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Additional Information */}
-                                                <div className="md:col-span-2">
-                                                    <h4 className="text-md font-semibold text-gray-900 mb-4">Additional Information</h4>
-                                                    <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
-                                                        <p className="text-sm text-gray-600">
-                                                            This information helps us provide you with a better experience. 
-                                                            Fill in as much as you're comfortable sharing.
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Preferences Tab */}
-                                    {activeTab === 'preferences' && (
-                                        <div className="space-y-6">
-                                            <div className="flex items-center gap-2 mb-6">
-                                                <Bell className="text-indigo-600" size={20} />
-                                                <h3 className="text-lg font-semibold text-gray-900">Preferences</h3>
-                                            </div>
-                                            
-                                            <div className="space-y-6">
-                                                {/* Notification Preferences */}
-                                                <div className="bg-gray-50 rounded-lg border border-gray-200 p-5">
-                                                    <h4 className="text-md font-semibold text-gray-900 mb-4">Notification Preferences</h4>
-                                                    <div className="space-y-3">
-                                                        {([
-                                                            { key: 'email' as const, label: 'Email Notifications', description: 'Receive updates via email' },
-                                                            { key: 'sms' as const, label: 'SMS Notifications', description: 'Receive text message alerts' },
-                                                            { key: 'push' as const, label: 'Push Notifications', description: 'Get browser/app notifications' },
-                                                            { key: 'marketing' as const, label: 'Marketing Communications', description: 'Receive promotional emails' },
-                                                            { key: 'updates' as const, label: 'System Updates', description: 'Get important system updates' },
-                                                        ]).map(({ key, label, description }) => (
-                                                            <div key={key} className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
-                                                                <div>
-                                                                    <label className="font-medium text-gray-900">{label}</label>
-                                                                    <p className="text-sm text-gray-600">{description}</p>
-                                                                </div>
-                                                                {isEditing ? (
-                                                                    <label className="switch">
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            checked={notificationPrefs[key] || false}
-                                                                            onChange={(e) => handleNotificationChange(key, e.target.checked)}
-                                                                        />
-                                                                        <span className="slider round"></span>
-                                                                    </label>
-                                                                ) : (
-                                                                    <div className={`px-3 py-1 rounded-full text-sm ${notificationPrefs[key] ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                                                                        {notificationPrefs[key] ? 'Enabled' : 'Disabled'}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-
-                                                {/* Privacy Preferences */}
-                                                <div className="bg-gray-50 rounded-lg border border-gray-200 p-5">
-                                                    <h4 className="text-md font-semibold text-gray-900 mb-4">Privacy Settings</h4>
-                                                    <div className="space-y-4">
-                                                        <div className="flex items-center justify-between">
-                                                            <div>
-                                                                <label className="font-medium text-gray-900">Profile Visibility</label>
-                                                                <p className="text-sm text-gray-600">
-                                                                    {profileData.is_public 
-                                                                        ? 'Your profile is visible to other users' 
-                                                                        : 'Only you can see your profile'}
-                                                                </p>
-                                                            </div>
-                                                            <div className="flex items-center gap-2">
-                                                                {isEditing ? (
-                                                                    <button
-                                                                        onClick={handleToggleVisibility}
-                                                                        className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                                                                            profileData.is_public 
-                                                                                ? 'bg-green-100 text-green-800 hover:bg-green-200' 
-                                                                                : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-                                                                        }`}
-                                                                    >
-                                                                        {profileData.is_public ? 'Public' : 'Private'}
-                                                                    </button>
-                                                                ) : (
-                                                                    <span className={`px-4 py-2 rounded-lg font-medium ${
-                                                                        profileData.is_public 
-                                                                            ? 'bg-green-100 text-green-800' 
-                                                                            : 'bg-gray-100 text-gray-800'
-                                                                    }`}>
-                                                                        {profileData.is_public ? 'Public' : 'Private'}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                        
-                                                        <div className="flex items-center justify-between">
-                                                            <div>
-                                                                <label className="font-medium text-gray-900">Data Sharing</label>
-                                                                <p className="text-sm text-gray-600">Allow data collection for personalization</p>
-                                                            </div>
-                                                            {isEditing ? (
-                                                                <label className="switch">
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        name="data_sharing"
-                                                                        checked={formData.is_public || false}
-                                                                        onChange={() => {}}
-                                                                    />
-                                                                    <span className="slider round"></span>
-                                                                </label>
-                                                            ) : (
-                                                                <span className="px-4 py-2 rounded-lg font-medium bg-gray-100 text-gray-800">
-                                                                    {formData.is_public ? 'Enabled' : 'Disabled'}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Validation Errors */}
-                                    {showValidationErrors && (
-                                        <div className="mt-6 bg-red-50 border border-red-200 rounded-lg p-4">
-                                            <div className="flex items-center gap-2 mb-2">
-                                                <AlertCircle className="text-red-500" size={18} />
-                                                <h4 className="font-medium text-red-800">Please fix the following errors:</h4>
-                                            </div>
-                                            <ul className="list-disc list-inside text-sm text-red-700 space-y-1">
-                                                <li>First name is required</li>
-                                                <li>Last name is required</li>
-                                                <li>Email must be valid</li>
-                                            </ul>
-                                        </div>
-                                    )}
+                    {/* Profile Stats */}
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+                        <h3 className="text-lg font-semibold text-green-800 mb-4">
+                            <Check className="inline mr-2" size={20} />
+                            Profile Statistics
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div className="bg-white rounded-lg p-4 text-center">
+                                <div className="text-2xl font-bold text-green-600">
+                                    {calculateProfileCompletion()}%
                                 </div>
+                                <p className="text-sm text-gray-600 mt-1">Completion</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-4 text-center">
+                                <div className="text-2xl font-bold text-blue-600">
+                                    {profileUtils.getCompletionLevel(calculateProfileCompletion())}
+                                </div>
+                                <p className="text-sm text-gray-600 mt-1">Profile Level</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-4 text-center">
+                                <div className="text-2xl font-bold text-purple-600">
+                                    {profileData?.profile_updated_count || 0}
+                                </div>
+                                <p className="text-sm text-gray-600 mt-1">Updates Made</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-4 text-center">
+                                <div className="text-2xl font-bold text-orange-600">
+                                    {profileData?.is_public ? 'Public' : 'Private'}
+                                </div>
+                                <p className="text-sm text-gray-600 mt-1">Profile Status</p>
                             </div>
                         </div>
                     </div>
                 </div>
             )}
-
-            {/* Add custom switch styles - FIXED JSX ATTRIBUTE */}
-            <style jsx="true">{`
-                .switch {
-                    position: relative;
-                    display: inline-block;
-                    width: 60px;
-                    height: 34px;
-                }
-                .switch input {
-                    opacity: 0;
-                    width: 0;
-                    height: 0;
-                }
-                .slider {
-                    position: absolute;
-                    cursor: pointer;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    background-color: #ccc;
-                    transition: .4s;
-                }
-                .slider:before {
-                    position: absolute;
-                    content: "";
-                    height: 26px;
-                    width: 26px;
-                    left: 4px;
-                    bottom: 4px;
-                    background-color: white;
-                    transition: .4s;
-                }
-                input:checked + .slider {
-                    background-color: #4f46e5;
-                }
-                input:checked + .slider:before {
-                    transform: translateX(26px);
-                }
-                .slider.round {
-                    border-radius: 34px;
-                }
-                .slider.round:before {
-                    border-radius: 50%;
-                }
-            `}</style>
         </DashboardLayout>
     )
 }

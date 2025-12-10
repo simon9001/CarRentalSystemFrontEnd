@@ -120,13 +120,13 @@ const BookingManagement: React.FC = () => {
           </div>
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Booking Management</h1>
-            <p className="text-gray-600">Manage all rental bookings and reservations</p>
+            <p className="text-gray-600 text-sm sm:text-base">Manage all rental bookings and reservations</p>
           </div>
         </div>
         
         <button
           onClick={() => setActiveView('create')}
-          className="btn btn-primary gap-2"
+          className="btn btn-primary gap-2 w-full sm:w-auto"
         >
           <Plus size={20} />
           New Booking
@@ -135,44 +135,47 @@ const BookingManagement: React.FC = () => {
 
       {/* Navigation Tabs */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
-        <div className="border-b border-gray-200">
-          <nav className="flex flex-wrap -mb-px">
+        <div className="border-b border-gray-200 overflow-x-auto">
+          <nav className="flex min-w-max sm:min-w-0">
             <button
               onClick={() => setActiveView('dashboard')}
-              className={`flex items-center gap-2 py-4 px-6 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex items-center gap-2 py-3 sm:py-4 px-3 sm:px-6 text-xs sm:text-sm font-medium border-b-2 transition-colors flex-shrink-0 ${
                 activeView === 'dashboard'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
-              <BarChart3 size={16} />
-              Dashboard
+              <BarChart3 size={14} className="sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline">Dashboard</span>
+              <span className="sm:hidden">Dash</span>
             </button>
             
             <button
               onClick={() => setActiveView('all')}
-              className={`flex items-center gap-2 py-4 px-6 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex items-center gap-2 py-3 sm:py-4 px-3 sm:px-6 text-xs sm:text-sm font-medium border-b-2 transition-colors flex-shrink-0 ${
                 activeView === 'all'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
-              <List size={16} />
-              All Bookings
+              <List size={14} className="sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline">All Bookings</span>
+              <span className="sm:hidden">All</span>
             </button>
             
             <button
               onClick={() => setActiveView('today-pickups')}
-              className={`flex items-center gap-2 py-4 px-6 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex items-center gap-2 py-3 sm:py-4 px-3 sm:px-6 text-xs sm:text-sm font-medium border-b-2 transition-colors flex-shrink-0 ${
                 activeView === 'today-pickups'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
-              <Car size={16} />
-              Today's Pickups
+              <Car size={14} className="sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline">Today's Pickups</span>
+              <span className="sm:hidden">Pickups</span>
               {todaysPickups && todaysPickups.length > 0 && (
-                <span className="bg-blue-500 text-white text-xs rounded-full px-2 py-1">
+                <span className="bg-blue-500 text-white text-xs rounded-full px-1.5 sm:px-2 py-0.5 sm:py-1">
                   {todaysPickups.length}
                 </span>
               )}
@@ -180,16 +183,17 @@ const BookingManagement: React.FC = () => {
             
             <button
               onClick={() => setActiveView('today-returns')}
-              className={`flex items-center gap-2 py-4 px-6 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex items-center gap-2 py-3 sm:py-4 px-3 sm:px-6 text-xs sm:text-sm font-medium border-b-2 transition-colors flex-shrink-0 ${
                 activeView === 'today-returns'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
-              <Clock size={16} />
-              Today's Returns
+              <Clock size={14} className="sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline">Today's Returns</span>
+              <span className="sm:hidden">Returns</span>
               {todaysReturns && todaysReturns.length > 0 && (
-                <span className="bg-green-500 text-white text-xs rounded-full px-2 py-1">
+                <span className="bg-green-500 text-white text-xs rounded-full px-1.5 sm:px-2 py-0.5 sm:py-1">
                   {todaysReturns.length}
                 </span>
               )}
@@ -197,16 +201,17 @@ const BookingManagement: React.FC = () => {
             
             <button
               onClick={() => setActiveView('overdue')}
-              className={`flex items-center gap-2 py-4 px-6 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex items-center gap-2 py-3 sm:py-4 px-3 sm:px-6 text-xs sm:text-sm font-medium border-b-2 transition-colors flex-shrink-0 ${
                 activeView === 'overdue'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
-              <AlertTriangle size={16} />
-              Overdue Returns
+              <AlertTriangle size={14} className="sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline">Overdue Returns</span>
+              <span className="sm:hidden">Overdue</span>
               {overdueReturns && overdueReturns.length > 0 && (
-                <span className="bg-red-500 text-white text-xs rounded-full px-2 py-1">
+                <span className="bg-red-500 text-white text-xs rounded-full px-1.5 sm:px-2 py-0.5 sm:py-1">
                   {overdueReturns.length}
                 </span>
               )}

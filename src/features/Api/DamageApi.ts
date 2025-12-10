@@ -17,7 +17,7 @@ interface GetAllDamageReportsParams {
 }
 
 // TypeScript interfaces
-interface DamageReport {
+export interface DamageReport {
   incident_id: number
   booking_id: number
   vehicle_id: number
@@ -224,7 +224,7 @@ getAllDamageReports: builder.query<ApiResponse<DamageReport[]>, GetAllDamageRepo
     // ➤ Create new damage report
     createDamageReport: builder.mutation<DamageReport, Partial<DamageReport>>({
       query: (damageData) => ({
-        url: '/',
+        url: '',
         method: 'POST',
         body: damageData,
       }),

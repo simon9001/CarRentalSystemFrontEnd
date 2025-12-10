@@ -1,13 +1,24 @@
 // components/admin/CreateVehicleModal.tsx
 import React, { useState, useEffect } from 'react'
-import { X, Upload, Image as ImageIcon, Car, Camera, Check, Save, ChevronRight, ChevronLeft, AlertCircle, DollarSign, MapPin, Gauge, Shield, Wrench, Calendar, Tag, FileText, Sparkles, PlusCircle, Info, Clock } from 'lucide-react'
+import { X, Upload, Image as ImageIcon, Car, Camera, Check, Save, ChevronRight, ChevronLeft, AlertCircle, DollarSign, MapPin, Gauge, Shield, Wrench, Calendar, Tag, FileText, Sparkles, PlusCircle, Info, Clock, Cloud } from 'lucide-react'
 import { VehicleApi } from '../../../features/Api/VehicleApi'
 import Swal from 'sweetalert2'
-import { type CreateVehicleRequest, type AddVehicleImageRequest } from '../../../types/vehicletype'
+import { type CreateVehicleRequest, type AddVehicleImageRequest, type VehicleResponse, type CarModel } from '../../../types/vehicletype'
 
 interface CreateVehicleModalProps {
     onClose: () => void
     onSuccess: () => void
+}
+
+interface CreateVehicleResponse {
+    message: string;
+    vehicle: VehicleResponse;
+}
+
+interface CloudinaryUploadResult {
+    url: string;
+    type: string;
+    publicId: string;
 }
 
 const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSuccess }) => {
@@ -16,6 +27,8 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
     const [imagePreviews, setImagePreviews] = useState<string[]>([])
     const [primaryImageIndex, setPrimaryImageIndex] = useState<number>(0)
     const [isSubmitting, setIsSubmitting] = useState(false)
+    const [isUploadingImages, setIsUploadingImages] = useState(false)
+    const [uploadedImageUrls, setUploadedImageUrls] = useState<CloudinaryUploadResult[]>([])
     const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
     // RTK Query hooks
@@ -38,20 +51,23 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
         notes: ''
     })
 
+    // Cloudinary configuration
+    const CLOUDINARY_CLOUD_NAME = 'dfhzcvbof'
+    const CLOUDINARY_UPLOAD_PRESET = 'Csrrentalsystem'
+    const CLOUDINARY_FOLDER = 'currentalsystem/vehicles'
+
     // Auto-set default dates
     useEffect(() => {
         const today = new Date()
-        const nextYear = new Date(today.setFullYear(today.getFullYear() + 1))
-            .toISOString()
-            .split('T')[0]
-        const nextMonth = new Date(new Date().setMonth(new Date().getMonth() + 1))
-            .toISOString()
-            .split('T')[0]
+        const nextYear = new Date()
+        nextYear.setFullYear(today.getFullYear() + 1)
+        const nextMonth = new Date()
+        nextMonth.setMonth(today.getMonth() + 1)
 
         setFormData(prev => ({
             ...prev,
-            insurance_expiry_date: prev.insurance_expiry_date || nextYear,
-            service_due_date: prev.service_due_date || nextMonth
+            insurance_expiry_date: prev.insurance_expiry_date || nextYear.toISOString().split('T')[0],
+            service_due_date: prev.service_due_date || nextMonth.toISOString().split('T')[0]
         }))
     }, [])
 
@@ -59,15 +75,14 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
         const errors: Record<string, string> = {}
 
         if (stepNumber === 1) {
-            if (!formData.model_id) errors.model_id = 'Model is required'
-            if (!formData.registration_number) errors.registration_number = 'Registration number is required'
-            if (!formData.color) errors.color = 'Color is required'
-            if (!formData.vin_number) errors.vin_number = 'VIN number is required'
+            if (!formData.model_id || formData.model_id <= 0) errors.model_id = 'Please select a valid model'
+            if (!formData.registration_number.trim()) errors.registration_number = 'Registration number is required'
+            if (!formData.color.trim()) errors.color = 'Color is required'
+            if (!formData.vin_number.trim()) errors.vin_number = 'VIN number is required'
             if (!formData.current_mileage || formData.current_mileage < 0) errors.current_mileage = 'Valid mileage is required'
             
-            // Validate VIN format (basic validation)
             if (formData.vin_number && formData.vin_number.length !== 17) {
-                errors.vin_number = 'VIN must be 17 characters'
+                errors.vin_number = 'VIN must be exactly 17 characters'
             }
         }
 
@@ -81,12 +96,24 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target
-        setFormData(prev => ({
-            ...prev,
-            [name]: name === 'model_id' || name === 'current_mileage' || name === 'branch_id' || name === 'actual_daily_rate' 
-                ? value ? Number(value) : undefined 
-                : value
-        }))
+        
+        if (name === 'model_id' || name === 'current_mileage') {
+            setFormData(prev => ({
+                ...prev,
+                [name]: value === '' ? 0 : Number(value)
+            }))
+        } else if (name === 'branch_id' || name === 'actual_daily_rate') {
+            // For optional fields, convert empty string to undefined
+            setFormData(prev => ({
+                ...prev,
+                [name]: value === '' ? undefined : Number(value)
+            }))
+        } else {
+            setFormData(prev => ({
+                ...prev,
+                [name]: value
+            }))
+        }
         
         // Clear error for this field
         if (formErrors[name]) {
@@ -117,7 +144,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                 })
                 return false
             }
-            if (file.size > 5 * 1024 * 1024) { // 5MB limit
+            if (file.size > 5 * 1024 * 1024) {
                 Swal.fire({
                     title: 'File too large',
                     text: 'Maximum file size is 5MB',
@@ -132,7 +159,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
         const newImages = [...images, ...validFiles]
         setImages(newImages)
         
-        // Create previews
+        // Create previews for new images only
         validFiles.forEach(file => {
             const reader = new FileReader()
             reader.onload = (e) => {
@@ -141,7 +168,6 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
             reader.readAsDataURL(file)
         })
 
-        // Clear image error
         if (formErrors.images) {
             setFormErrors(prev => ({ ...prev, images: '' }))
         }
@@ -150,12 +176,106 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
     const removeImage = (index: number) => {
         const newImages = images.filter((_, i) => i !== index)
         const newPreviews = imagePreviews.filter((_, i) => i !== index)
+        const newUploadedUrls = uploadedImageUrls.filter((_, i) => i !== index)
         setImages(newImages)
         setImagePreviews(newPreviews)
+        setUploadedImageUrls(newUploadedUrls)
         if (primaryImageIndex === index) {
             setPrimaryImageIndex(0)
         } else if (primaryImageIndex > index) {
             setPrimaryImageIndex(primaryImageIndex - 1)
+        }
+    }
+
+    const uploadImageToCloudinary = async (file: File): Promise<CloudinaryUploadResult> => {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET)
+        formData.append('folder', CLOUDINARY_FOLDER)
+        formData.append('tags', 'currentalsystem,vehicle')
+
+        try {
+            const response = await fetch(
+                `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+                {
+                    method: 'POST',
+                    body: formData,
+                }
+            )
+
+            if (!response.ok) {
+                const errorText = await response.text()
+                throw new Error(`Upload failed (${response.status}): ${errorText}`)
+            }
+
+            const data = await response.json()
+            
+            return {
+                url: data.secure_url,
+                type: data.format,
+                publicId: data.public_id
+            }
+        } catch (error) {
+            console.error('Cloudinary upload error:', error)
+            throw error
+        }
+    }
+
+    const uploadImagesToCloudinary = async (): Promise<CloudinaryUploadResult[]> => {
+        if (images.length === 0) return []
+
+        setIsUploadingImages(true)
+        
+        Swal.fire({
+            title: 'Uploading Images...',
+            html: `
+                <div class="text-center">
+                    <div class="mb-4">
+                        <div class="radial-progress text-primary mx-auto" style="--value:0; width: 60px; height: 60px;">0%</div>
+                    </div>
+                    <p class="text-sm text-gray-600">Uploading to Cloudinary...</p>
+                </div>
+            `,
+            showConfirmButton: false,
+            allowOutsideClick: false
+        })
+
+        try {
+            const uploadedUrls: CloudinaryUploadResult[] = []
+            
+            for (let i = 0; i < images.length; i++) {
+                try {
+                    const progress = Math.round(((i + 1) / images.length) * 100)
+                    
+                    // Update progress in Swal
+                    const progressElement = document.querySelector('.radial-progress') as HTMLElement
+                    if (progressElement) {
+                        progressElement.style.setProperty('--value', progress.toString())
+                        progressElement.textContent = `${progress}%`
+                    }
+
+                    const result = await uploadImageToCloudinary(images[i])
+                    uploadedUrls.push(result)
+                } catch (error: any) {
+                    console.error(`Failed to upload image ${i + 1}:`, error)
+                    throw new Error(`Failed to upload image ${i + 1}. Please try again.`)
+                }
+            }
+
+            setUploadedImageUrls(uploadedUrls)
+            Swal.close()
+            return uploadedUrls
+        } catch (error: any) {
+            Swal.close()
+            Swal.fire({
+                title: 'Upload Failed',
+                text: error.message || 'Failed to upload images. Please try again.',
+                icon: 'error',
+                confirmButtonText: 'OK'
+            })
+            throw error
+        } finally {
+            setIsUploadingImages(false)
         }
     }
 
@@ -178,72 +298,225 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
-        setIsSubmitting(true)
         
         if (!validateStep(3)) {
-            setIsSubmitting(false)
+            Swal.fire({
+                title: 'Validation Error',
+                text: 'Please fix all errors before submitting',
+                icon: 'error',
+                confirmButtonText: 'OK'
+            })
             return
         }
 
+        setIsSubmitting(true)
+        
         try {
-            // Create vehicle
-            const vehicle = await createVehicle(formData).unwrap()
+            console.log('Starting vehicle creation process...')
             
-            // Upload images if any
-            if (images.length > 0) {
-                Swal.fire({
-                    title: 'Uploading Images...',
-                    text: 'Please wait while images are being uploaded',
-                    icon: 'info',
-                    showConfirmButton: false,
-                    allowOutsideClick: false
-                })
-
-                const uploadPromises = images.map(async (file, index) => {
-                    const imageData: AddVehicleImageRequest = {
-                        image_url: URL.createObjectURL(file), // In production, upload to cloud storage
-                        image_type: file.type,
-                        is_primary: index === primaryImageIndex,
-                        display_order: index
-                    }
-                    return await addVehicleImage({ vehicle_id: vehicle.vehicle_id, image: imageData }).unwrap()
-                })
-                
-                await Promise.all(uploadPromises)
-                Swal.close()
+            // Step 1: Create vehicle first
+            const vehicleData: CreateVehicleRequest = {
+                model_id: Number(formData.model_id),
+                registration_number: formData.registration_number.trim(),
+                color: formData.color.trim(),
+                vin_number: formData.vin_number.trim(),
+                current_mileage: Number(formData.current_mileage),
+                branch_id: formData.branch_id,
+                actual_daily_rate: formData.actual_daily_rate,
+                insurance_expiry_date: formData.insurance_expiry_date || undefined,
+                service_due_date: formData.service_due_date || undefined,
+                custom_features: formData.custom_features?.trim() || undefined,
+                notes: formData.notes?.trim() || undefined
             }
+            
+            console.log('Creating vehicle with data:', vehicleData)
+            
+            const vehicleResponse = await createVehicle(vehicleData).unwrap() as CreateVehicleResponse
+            console.log('Vehicle created successfully:', vehicleResponse)
+            
+            // Extract vehicle_id from response
+            let vehicleId: number;
+            
+            // Check the response structure based on your backend
+            if (vehicleResponse.vehicle && vehicleResponse.vehicle.vehicle_id) {
+                // Structure: { message: "...", vehicle: { vehicle_id: ... } }
+                vehicleId = vehicleResponse.vehicle.vehicle_id;
+                console.log('Found vehicle_id in response.vehicle:', vehicleId);
+            } else if ((vehicleResponse as any).vehicle_id) {
+                // Structure: { vehicle_id: ..., ... } (direct response)
+                vehicleId = (vehicleResponse as any).vehicle_id;
+                console.log('Found vehicle_id directly in response:', vehicleId);
+            } else {
+                console.error('Could not extract vehicle_id from response:', vehicleResponse);
+                throw new Error('Could not retrieve vehicle ID from server response');
+            }
+
+            console.log('Vehicle ID:', vehicleId);
+
+            // Step 2: Upload images to Cloudinary if any
+            let imageUploadResults: CloudinaryUploadResult[] = []
+            if (images.length > 0) {
+                console.log('Uploading', images.length, 'images to Cloudinary...')
+                try {
+                    imageUploadResults = await uploadImagesToCloudinary()
+                    console.log('Cloudinary upload successful:', imageUploadResults)
+                } catch (error: any) {
+                    // Even if image upload fails, we still have the vehicle created
+                    console.warn('Cloudinary upload failed, but vehicle was created:', error)
+                    // Continue without images
+                }
+            }
+
+            // Step 3: Add image records to backend
+            if (imageUploadResults.length > 0) {
+                console.log('Adding', imageUploadResults.length, 'images to vehicle...')
+                
+                try {
+                    // Show uploading progress
+                    Swal.fire({
+                        title: 'Saving Images...',
+                        text: 'Please wait while image information is being saved',
+                        icon: 'info',
+                        showConfirmButton: false,
+                        allowOutsideClick: false
+                    })
+
+                    const uploadPromises = imageUploadResults.map(async (imageData, index) => {
+                        const imageRequest: AddVehicleImageRequest = {
+                            image_url: imageData.url,
+                            image_type: getImageTypeFromCloudinaryType(imageData.type) || 'exterior',
+                            is_primary: index === primaryImageIndex,
+                            display_order: index + 1,
+                            cloudinary_public_id: imageData.publicId
+                        }
+                        
+                        console.log(`Adding image ${index + 1} to vehicle ${vehicleId}:`, imageRequest);
+                        
+                        try {
+                            // Use the RTK Query endpoint
+                            return await addVehicleImage({ 
+                                vehicle_id: vehicleId, 
+                                image: imageRequest 
+                            }).unwrap();
+                        } catch (error: any) {
+                            console.error(`Failed to add image ${index + 1}:`, error);
+                            
+                            // If the endpoint doesn't exist or fails, skip this image
+                            console.warn(`Skipping image ${index + 1} due to error:`, error.message);
+                            return null;
+                        }
+                    });
+                    
+                    const results = await Promise.all(uploadPromises);
+                    const successfulUploads = results.filter(result => result !== null).length;
+                    
+                    Swal.close();
+                    console.log(`${successfulUploads}/${imageUploadResults.length} images saved successfully`);
+                    
+                } catch (imageError: any) {
+                    console.warn('Error adding images to database, but vehicle was created:', imageError);
+                    Swal.close();
+                }
+            }
+
+            // Success message
+            const successMessage = images.length > 0 
+                ? `Vehicle created successfully! ${imageUploadResults.length} image(s) uploaded.`
+                : 'Vehicle created successfully!';
 
             Swal.fire({
                 title: 'Success!',
-                text: 'Vehicle created successfully.',
+                html: `
+                    <div class="text-center">
+                        <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                        </div>
+                        <h3 class="text-lg font-semibold text-gray-800 mb-2">Vehicle Created!</h3>
+                        <p class="text-gray-600">
+                            ${formData.registration_number} has been added to the system.
+                        </p>
+                        ${imageUploadResults.length > 0 ? 
+                            `<p class="text-sm text-green-600 mt-2">
+                                <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                ${imageUploadResults.length} image(s) uploaded
+                            </p>` : ''
+                        }
+                    </div>
+                `,
                 icon: 'success',
-                timer: 2000,
+                timer: 3000,
                 showConfirmButton: false
             }).then(() => {
-                onSuccess()
+                onSuccess();
+                onClose();
             })
             
         } catch (error: any) {
+            console.error('Submit error details:', {
+                error,
+                status: error?.status,
+                data: error?.data,
+                message: error?.message
+            })
+            
+            let errorMessage = 'Failed to create vehicle.';
+            
+            if (error?.status === 409) {
+                errorMessage = error?.data?.error || 'Registration number or VIN already exists.';
+            } else if (error?.status === 400) {
+                errorMessage = error?.data?.error || 'Invalid data provided. Please check your inputs.';
+            } else if (error?.status === 404) {
+                errorMessage = 'Car model or branch not found.';
+            } else if (error?.status === 500) {
+                errorMessage = 'Server error. Please try again later.';
+            } else if (error?.data?.error) {
+                errorMessage = error.data.error;
+            } else if (error?.message) {
+                errorMessage = error.message;
+            }
+            
             Swal.fire({
                 title: 'Error!',
-                text: error?.data?.message || 'Failed to create vehicle.',
+                text: errorMessage,
                 icon: 'error',
                 confirmButtonText: 'OK'
             })
         } finally {
-            setIsSubmitting(false)
+            setIsSubmitting(false);
         }
     }
 
-    const groupedModels = carModels?.reduce((acc, model) => {
+    const getImageTypeFromCloudinaryType = (format: string): string => {
+        return 'exterior'
+    }
+
+    const groupedModels = carModels?.reduce((acc: Record<string, CarModel[]>, model) => {
         if (!acc[model.make]) acc[model.make] = []
         acc[model.make].push(model)
         return acc
-    }, {} as Record<string, any[]>)
+    }, {})
 
-    // Get selected model details
     const selectedModel = carModels?.find(model => model.model_id === formData.model_id)
     const selectedBranch = branches?.find(branch => branch.branch_id === formData.branch_id)
+
+    const getDailyRate = (): number | string => {
+        if (formData.actual_daily_rate !== undefined) return formData.actual_daily_rate
+        if (selectedModel && 'standard_daily_rate' in selectedModel) {
+            return selectedModel.standard_daily_rate
+        }
+        return 'Standard rate'
+    }
+
+    const formatDailyRate = (rate: number | string): string => {
+        if (typeof rate === 'number') {
+            return rate.toFixed(2)
+        }
+        return rate
+    }
 
     const getStepIcon = (stepNumber: number) => {
         switch(stepNumber) {
@@ -263,10 +536,19 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
         }
     }
 
+    // Format date for display
+    const formatDate = (dateString: string | undefined) => {
+        if (!dateString) return 'Not set';
+        return new Date(dateString).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+    }
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[95vh] overflow-hidden my-8">
-                {/* Header */}
                 <div className="sticky top-0 bg-gradient-to-r from-green-600 to-emerald-700 text-white p-6 z-10">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
@@ -284,14 +566,14 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                         </div>
                         <button
                             onClick={onClose}
-                            className="btn btn-ghost btn-circle text-white hover:bg-white/20"
+                            className="btn btn-ghost btn-circle text-white hover:bg-white/20 transition-colors"
                             title="Close"
+                            disabled={isSubmitting || isUploadingImages}
                         >
                             <X className="w-5 h-5" />
                         </button>
                     </div>
 
-                    {/* Progress Steps */}
                     <div className="mt-6">
                         <div className="flex items-center justify-between max-w-2xl mx-auto">
                             {[1, 2, 3].map((stepNum) => (
@@ -304,6 +586,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                                 ? 'bg-white text-emerald-700 shadow-lg' 
                                                 : 'bg-white/20 text-white'
                                         } ${stepNum < step ? 'cursor-pointer hover:scale-110' : 'cursor-default'}`}
+                                        disabled={isSubmitting || isUploadingImages}
                                     >
                                         {step > stepNum ? (
                                             <Check className="w-5 h-5" />
@@ -333,10 +616,10 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
 
                 <form onSubmit={handleSubmit}>
                     <div className="p-6 max-h-[60vh] overflow-y-auto">
-                        {/* Step 1: Basic Information */}
                         {step === 1 && (
                             <div className="space-y-6 animate-fadeIn">
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {/* Model Selection */}
                                     <div className="form-control">
                                         <label className="label">
                                             <span className="label-text font-semibold flex items-center gap-2">
@@ -352,9 +635,12 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                                 formErrors.model_id ? 'border-red-500' : ''
                                             }`}
                                             required
+                                            disabled={isLoadingModels}
                                         >
-                                            <option value="">Select Model</option>
-                                            {groupedModels && Object.entries(groupedModels).map(([make, models]) => (
+                                            <option value="0">Select Model</option>
+                                            {isLoadingModels ? (
+                                                <option disabled>Loading models...</option>
+                                            ) : groupedModels && Object.entries(groupedModels).map(([make, models]) => (
                                                 <optgroup key={make} label={make}>
                                                     {models.map(model => (
                                                         <option key={model.model_id} value={model.model_id}>
@@ -371,6 +657,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                         )}
                                     </div>
 
+                                    {/* Registration Number */}
                                     <div className="form-control">
                                         <label className="label">
                                             <span className="label-text font-semibold flex items-center gap-2">
@@ -388,6 +675,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                             }`}
                                             required
                                             placeholder="ABC-123"
+                                            disabled={isSubmitting}
                                         />
                                         {formErrors.registration_number && (
                                             <label className="label">
@@ -396,6 +684,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                         )}
                                     </div>
 
+                                    {/* Color */}
                                     <div className="form-control">
                                         <label className="label">
                                             <span className="label-text font-semibold flex items-center gap-2">
@@ -413,6 +702,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                             }`}
                                             required
                                             placeholder="e.g., Red, Blue, Black"
+                                            disabled={isSubmitting}
                                         />
                                         {formErrors.color && (
                                             <label className="label">
@@ -421,6 +711,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                         )}
                                     </div>
 
+                                    {/* VIN Number */}
                                     <div className="form-control">
                                         <label className="label">
                                             <span className="label-text font-semibold flex items-center gap-2">
@@ -433,12 +724,13 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                             name="vin_number"
                                             value={formData.vin_number}
                                             onChange={handleInputChange}
-                                            className={`input input-bordered input-lg focus:ring-2 focus:ring-emerald-500 ${
+                                            className={`input input-bordered input-lg focus:ring-2 focus:ring-emerald-500 uppercase ${
                                                 formErrors.vin_number ? 'border-red-500' : ''
                                             }`}
                                             required
                                             placeholder="17-character VIN"
                                             maxLength={17}
+                                            disabled={isSubmitting}
                                         />
                                         {formErrors.vin_number && (
                                             <label className="label">
@@ -452,6 +744,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                         </div>
                                     </div>
 
+                                    {/* Current Mileage */}
                                     <div className="form-control">
                                         <label className="label">
                                             <span className="label-text font-semibold flex items-center gap-2">
@@ -469,7 +762,9 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                             }`}
                                             required
                                             min="0"
+                                            step="1"
                                             placeholder="0"
+                                            disabled={isSubmitting}
                                         />
                                         {formErrors.current_mileage && (
                                             <label className="label">
@@ -478,6 +773,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                         )}
                                     </div>
 
+                                    {/* Daily Rate */}
                                     <div className="form-control">
                                         <label className="label">
                                             <span className="label-text font-semibold flex items-center gap-2">
@@ -496,6 +792,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                                 placeholder="Override standard rate"
                                                 min="0"
                                                 step="0.01"
+                                                disabled={isSubmitting}
                                             />
                                         </div>
                                         <label className="label">
@@ -505,6 +802,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                         </label>
                                     </div>
 
+                                    {/* Branch Selection */}
                                     <div className="form-control">
                                         <label className="label">
                                             <span className="label-text font-semibold flex items-center gap-2">
@@ -517,9 +815,12 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                             value={formData.branch_id || ''}
                                             onChange={handleInputChange}
                                             className="select select-bordered select-lg focus:ring-2 focus:ring-emerald-500"
+                                            disabled={isLoadingBranches || isSubmitting}
                                         >
                                             <option value="">Select Branch (Optional)</option>
-                                            {branches?.map(branch => (
+                                            {isLoadingBranches ? (
+                                                <option disabled>Loading branches...</option>
+                                            ) : branches?.map(branch => (
                                                 <option key={branch.branch_id} value={branch.branch_id}>
                                                     {branch.branch_name} • {branch.city}
                                                 </option>
@@ -533,7 +834,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                     </div>
                                 </div>
 
-                                {/* Maintenance Dates */}
+                                {/* Insurance and Service Sections */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div className="bg-gradient-to-br from-blue-50 to-white rounded-xl border border-blue-200 p-5">
                                         <div className="flex items-center gap-3 mb-4">
@@ -557,6 +858,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                                     value={formData.insurance_expiry_date}
                                                     onChange={handleInputChange}
                                                     className="input input-bordered w-full pl-10 focus:ring-2 focus:ring-blue-500"
+                                                    disabled={isSubmitting}
                                                 />
                                             </div>
                                             <label className="label">
@@ -589,6 +891,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                                     value={formData.service_due_date}
                                                     onChange={handleInputChange}
                                                     className="input input-bordered w-full pl-10 focus:ring-2 focus:ring-orange-500"
+                                                    disabled={isSubmitting}
                                                 />
                                             </div>
                                             <label className="label">
@@ -600,7 +903,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                     </div>
                                 </div>
 
-                                {/* Features & Notes */}
+                                {/* Custom Features and Notes */}
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                     <div className="form-control">
                                         <label className="label">
@@ -615,8 +918,9 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                             onChange={handleInputChange}
                                             className="textarea textarea-bordered h-32 focus:ring-2 focus:ring-emerald-500"
                                             placeholder="Enter custom features separated by commas...
-                                            Example: Leather Seats, Sunroof, Navigation System, Heated Seats"
+Example: Leather Seats, Sunroof, Navigation System, Heated Seats"
                                             rows={4}
+                                            disabled={isSubmitting}
                                         />
                                     </div>
 
@@ -633,15 +937,15 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                             onChange={handleInputChange}
                                             className="textarea textarea-bordered h-32 focus:ring-2 focus:ring-emerald-500"
                                             placeholder="Additional notes, remarks, or special instructions...
-                                            Example: Brand new vehicle, Special handling required"
+Example: Brand new vehicle, Special handling required"
                                             rows={4}
+                                            disabled={isSubmitting}
                                         />
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        {/* Step 2: Images */}
                         {step === 2 && (
                             <div className="space-y-6 animate-fadeIn">
                                 <div className="bg-gradient-to-br from-purple-50 to-white rounded-xl border border-purple-200 p-6">
@@ -651,8 +955,12 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                         </div>
                                         <h3 className="text-xl font-semibold text-gray-800 mb-2">Upload Vehicle Images</h3>
                                         <p className="text-gray-600 mb-4">
-                                            Add high-quality images to showcase your vehicle. First image will be primary.
+                                            Add high-quality images to showcase your vehicle. Images will be uploaded to Cloudinary.
                                         </p>
+                                        <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-lg mb-4">
+                                            <Cloud className="w-4 h-4" />
+                                            <span className="text-sm">Using Cloudinary for image storage</span>
+                                        </div>
                                     </div>
 
                                     <div className="border-3 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-purple-400 transition-colors bg-gradient-to-br from-gray-50 to-white">
@@ -667,13 +975,19 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                             accept="image/*"
                                             onChange={handleImageUpload}
                                             className="file-input file-input-bordered file-input-primary w-full max-w-xs"
-                                            disabled={images.length >= 10}
+                                            disabled={images.length >= 10 || isUploadingImages || isSubmitting}
                                         />
                                         <p className="text-sm text-gray-400 mt-4">
                                             {images.length}/10 images selected
                                         </p>
                                         {formErrors.images && (
                                             <p className="text-red-500 text-sm mt-2">{formErrors.images}</p>
+                                        )}
+                                        {isUploadingImages && (
+                                            <p className="text-blue-600 text-sm mt-2">
+                                                <span className="loading loading-spinner loading-xs mr-2"></span>
+                                                Uploading images to Cloudinary...
+                                            </p>
                                         )}
                                     </div>
                                 </div>
@@ -683,11 +997,20 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                         <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
                                             <ImageIcon className="w-5 h-5" />
                                             Preview Images ({imagePreviews.length})
+                                            {primaryImageIndex >= 0 && (
+                                                <span className="text-sm font-normal text-emerald-600">
+                                                    • Primary: Image {primaryImageIndex + 1}
+                                                </span>
+                                            )}
                                         </h3>
                                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                                             {imagePreviews.map((preview, index) => (
                                                 <div key={index} className="relative group">
-                                                    <div className="aspect-square rounded-lg overflow-hidden bg-gray-100 border-2 border-transparent group-hover:border-primary transition-colors">
+                                                    <div className={`aspect-square rounded-lg overflow-hidden bg-gray-100 border-2 transition-colors ${
+                                                        primaryImageIndex === index 
+                                                            ? 'border-emerald-500' 
+                                                            : 'border-transparent group-hover:border-primary'
+                                                    }`}>
                                                         <img
                                                             src={preview}
                                                             alt={`Preview ${index + 1}`}
@@ -700,6 +1023,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                                                 type="button"
                                                                 onClick={() => removeImage(index)}
                                                                 className="btn btn-error btn-circle btn-xs text-white"
+                                                                disabled={isUploadingImages || isSubmitting}
                                                             >
                                                                 <X className="w-3 h-3" />
                                                             </button>
@@ -708,6 +1032,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setPrimaryImageIndex(index)}
+                                                                disabled={isUploadingImages || isSubmitting}
                                                                 className={`btn btn-xs ${
                                                                     primaryImageIndex === index 
                                                                         ? 'btn-primary' 
@@ -736,36 +1061,9 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                         </div>
                                     </div>
                                 )}
-
-                                {/* Image Tips */}
-                                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 p-5">
-                                    <h4 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                                        <Info className="w-5 h-5" />
-                                        Image Upload Tips
-                                    </h4>
-                                    <ul className="text-sm text-gray-600 space-y-2">
-                                        <li className="flex items-center gap-2">
-                                            <Check className="w-4 h-4 text-green-500" />
-                                            Use high-resolution images (minimum 1200x800 pixels)
-                                        </li>
-                                        <li className="flex items-center gap-2">
-                                            <Check className="w-4 h-4 text-green-500" />
-                                            Include exterior, interior, and engine shots
-                                        </li>
-                                        <li className="flex items-center gap-2">
-                                            <Check className="w-4 h-4 text-green-500" />
-                                            Good lighting and clear backgrounds work best
-                                        </li>
-                                        <li className="flex items-center gap-2">
-                                            <Check className="w-4 h-4 text-green-500" />
-                                            First image will be used as the primary display image
-                                        </li>
-                                    </ul>
-                                </div>
                             </div>
                         )}
 
-                        {/* Step 3: Review */}
                         {step === 3 && (
                             <div className="space-y-6 animate-fadeIn">
                                 <div className="bg-gradient-to-br from-emerald-50 to-white rounded-xl border border-emerald-200 p-6">
@@ -780,7 +1078,6 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                     </div>
 
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                        {/* Basic Information */}
                                         <div className="bg-white rounded-lg border border-gray-200 p-5">
                                             <h4 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
                                                 <Car className="w-5 h-5" />
@@ -793,7 +1090,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                                 </div>
                                                 <div className="flex justify-between items-center py-2 border-b border-gray-100">
                                                     <dt className="text-gray-600">VIN:</dt>
-                                                    <dd className="font-mono font-medium text-gray-800">{formData.vin_number}</dd>
+                                                    <dd className="font-mono font-medium text-gray-800 text-sm">{formData.vin_number}</dd>
                                                 </div>
                                                 <div className="flex justify-between items-center py-2 border-b border-gray-100">
                                                     <dt className="text-gray-600">Color:</dt>
@@ -814,7 +1111,6 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                             </dl>
                                         </div>
 
-                                        {/* Pricing & Location */}
                                         <div className="bg-white rounded-lg border border-gray-200 p-5">
                                             <h4 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
                                                 <DollarSign className="w-5 h-5" />
@@ -824,7 +1120,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                                 <div className="flex justify-between items-center py-2 border-b border-gray-100">
                                                     <dt className="text-gray-600">Daily Rate:</dt>
                                                     <dd className="font-bold text-emerald-600">
-                                                        ${formData.actual_daily_rate || selectedModel?.daily_rate || 'Standard rate'}
+                                                        ${formatDailyRate(getDailyRate())}
                                                     </dd>
                                                 </div>
                                                 <div className="flex justify-between items-center py-2 border-b border-gray-100">
@@ -841,26 +1137,19 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                                 <div className="flex justify-between items-center py-2 border-b border-gray-100">
                                                     <dt className="text-gray-600">Insurance Expiry:</dt>
                                                     <dd className="font-medium text-gray-800">
-                                                        {formData.insurance_expiry_date ? 
-                                                            new Date(formData.insurance_expiry_date).toLocaleDateString() : 
-                                                            'Not set'
-                                                        }
+                                                        {formatDate(formData.insurance_expiry_date)}
                                                     </dd>
                                                 </div>
                                                 <div className="flex justify-between items-center py-2 border-b border-gray-100">
                                                     <dt className="text-gray-600">Service Due:</dt>
                                                     <dd className="font-medium text-gray-800">
-                                                        {formData.service_due_date ? 
-                                                            new Date(formData.service_due_date).toLocaleDateString() : 
-                                                            'Not set'
-                                                        }
+                                                        {formatDate(formData.service_due_date)}
                                                     </dd>
                                                 </div>
                                             </dl>
                                         </div>
                                     </div>
 
-                                    {/* Images Preview */}
                                     {imagePreviews.length > 0 && (
                                         <div className="mt-6 bg-white rounded-lg border border-gray-200 p-5">
                                             <h4 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
@@ -870,7 +1159,11 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                             <div className="flex gap-3 overflow-x-auto pb-2">
                                                 {imagePreviews.map((preview, index) => (
                                                     <div key={index} className="relative flex-shrink-0">
-                                                        <div className="w-20 h-20 rounded-lg overflow-hidden border-2 border-transparent">
+                                                        <div className={`w-20 h-20 rounded-lg overflow-hidden border-2 ${
+                                                            index === primaryImageIndex 
+                                                                ? 'border-emerald-500' 
+                                                                : 'border-gray-300'
+                                                        }`}>
                                                             <img
                                                                 src={preview}
                                                                 alt={`Preview ${index + 1}`}
@@ -884,77 +1177,55 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                                                 </div>
                                                             </div>
                                                         )}
+                                                        <div className="absolute bottom-1 right-1">
+                                                            <span className="badge badge-xs bg-black/70 text-white">
+                                                                {index + 1}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>
+                                            <p className="text-sm text-gray-600 mt-3">
+                                                {primaryImageIndex >= 0 && (
+                                                    <span className="text-emerald-600 mr-3">
+                                                        <Check className="w-4 h-4 inline mr-1" />
+                                                        Image {primaryImageIndex + 1} is primary
+                                                    </span>
+                                                )}
+                                                <span>
+                                                    Images will be uploaded to Cloudinary during submission
+                                                </span>
+                                            </p>
                                         </div>
                                     )}
 
-                                    {/* Features & Notes */}
-                                    <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                        {formData.custom_features && (
-                                            <div className="bg-white rounded-lg border border-gray-200 p-5">
-                                                <h4 className="font-semibold text-gray-800 mb-3">Custom Features</h4>
-                                                <div className="flex flex-wrap gap-2">
-                                                    {formData.custom_features.split(',').map((feature, index) => (
-                                                        <span key={index} className="badge badge-outline badge-sm">
-                                                            {feature.trim()}
-                                                        </span>
-                                                    ))}
+                                    {(formData.custom_features || formData.notes) && (
+                                        <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                            {formData.custom_features && (
+                                                <div className="bg-white rounded-lg border border-gray-200 p-5">
+                                                    <h4 className="font-semibold text-gray-800 mb-3">Custom Features</h4>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {formData.custom_features.split(',').filter(f => f.trim()).map((feature, index) => (
+                                                            <span key={index} className="badge badge-outline badge-sm">
+                                                                {feature.trim()}
+                                                            </span>
+                                                        ))}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        )}
-                                        {formData.notes && (
-                                            <div className="bg-white rounded-lg border border-gray-200 p-5">
-                                                <h4 className="font-semibold text-gray-800 mb-3">Notes</h4>
-                                                <p className="text-sm text-gray-700 line-clamp-3">{formData.notes}</p>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Final Check */}
-                                    <div className="mt-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl border border-yellow-200 p-5">
-                                        <h4 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                                            <AlertCircle className="w-5 h-5 text-yellow-600" />
-                                            Final Check
-                                        </h4>
-                                        <ul className="text-sm text-gray-600 space-y-2">
-                                            <li className="flex items-center gap-2">
-                                                {formData.model_id ? (
-                                                    <Check className="w-4 h-4 text-green-500" />
-                                                ) : (
-                                                    <X className="w-4 h-4 text-red-500" />
-                                                )}
-                                                <span>Model selected</span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                {formData.registration_number ? (
-                                                    <Check className="w-4 h-4 text-green-500" />
-                                                ) : (
-                                                    <X className="w-4 h-4 text-red-500" />
-                                                )}
-                                                <span>Registration number provided</span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                {imagePreviews.length > 0 ? (
-                                                    <Check className="w-4 h-4 text-green-500" />
-                                                ) : (
-                                                    <AlertCircle className="w-4 h-4 text-yellow-500" />
-                                                )}
-                                                <span>Images uploaded (recommended)</span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                <Clock className="w-4 h-4 text-blue-500" />
-                                                <span>Vehicle will be created with status: <strong>Available</strong></span>
-                                            </li>
-                                        </ul>
-                                    </div>
+                                            )}
+                                            {formData.notes && (
+                                                <div className="bg-white rounded-lg border border-gray-200 p-5">
+                                                    <h4 className="font-semibold text-gray-800 mb-3">Notes</h4>
+                                                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{formData.notes}</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
                     </div>
 
-                    {/* Footer */}
                     <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4">
                         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                             <div className="text-sm text-gray-600">
@@ -967,7 +1238,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                     )}
                                 </div>
                                 <div className="text-xs text-gray-500">
-                                    Step {step} of 3 • All required fields marked with *
+                                    Step {step} of 3 • Images uploaded to Cloudinary
                                 </div>
                             </div>
                             <div className="flex gap-3">
@@ -975,7 +1246,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                     type="button"
                                     onClick={step > 1 ? handlePrevStep : onClose}
                                     className="btn btn-ghost gap-2"
-                                    disabled={isSubmitting}
+                                    disabled={isSubmitting || isUploadingImages}
                                 >
                                     {step > 1 ? (
                                         <>
@@ -991,6 +1262,7 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                         type="button"
                                         onClick={handleNextStep}
                                         className="btn btn-primary gap-2"
+                                        disabled={isUploadingImages || isSubmitting}
                                     >
                                         Continue
                                         <ChevronRight className="w-4 h-4" />
@@ -999,12 +1271,12 @@ const CreateVehicleModal: React.FC<CreateVehicleModalProps> = ({ onClose, onSucc
                                     <button
                                         type="submit"
                                         className="btn btn-success gap-2 min-w-[140px]"
-                                        disabled={isSubmitting || isCreating}
+                                        disabled={isSubmitting || isCreating || isUploadingImages}
                                     >
-                                        {isSubmitting || isCreating ? (
+                                        {isSubmitting || isCreating || isUploadingImages ? (
                                             <>
                                                 <span className="loading loading-spinner loading-sm"></span>
-                                                Creating...
+                                                {isUploadingImages ? 'Uploading...' : 'Creating...'}
                                             </>
                                         ) : (
                                             <>
